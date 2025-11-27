@@ -10,30 +10,88 @@ from firebase_admin import credentials, db
 
 app = Flask(__name__)
 CORS(app)
-app.secret_key = os.environ.get('SECRET_KEY', 'soil-ee92b-firebase-adminsdk-fbsvc-fa736a3052.json')
+app.secret_key = os.environ.get('SECRET_KEY', 'your-secret-key-change-this-in-production')
 
 # ========== Firebase Setup ==========
-try:
-    cred = credentials.Certificate({
-        "type": "service_account",
-        "project_id": os.environ.get('FIREBASE_PROJECT_ID'),
-        "private_key": os.environ.get('FIREBASE_PRIVATE_KEY', '').replace('\\n', '\n'),
-        "client_email": os.environ.get('FIREBASE_CLIENT_EMAIL')
-    })
-    
-    firebase_admin.initialize_app(cred, {
-        'databaseURL': os.environ.get('FIREBASE_DATABASE_URL')
-    })
-    
-    sensor_ref = db.reference('sensor_data')
-    commands_ref = db.reference('commands')
-    FIREBASE_ENABLED = True
-    print("✅ Firebase initialized successfully")
-except Exception as e:
-    print(f"⚠️  Firebase not configured: {e}")
-    FIREBASE_ENABLED = False
+FIREBASE_ENABLED = False
+sensor_ref = None
+commands_ref = None
+users_ref = None
 
-# ========== Database Setup ==========
+def init_firebase():
+    global FIREBASE_ENABLED, sensor_ref, commands_ref, users_ref
+    
+    try:
+        # Check if already initialized
+        if firebase_admin._apps:
+            print("✅ Firebase already initialized")
+            FIREBASE_ENABLED = True
+            sensor_ref = db.reference('sensor_data')
+            commands_ref = db.reference('commands')
+            users_ref = db.reference('users')
+            return True
+        
+        # Get environment variables
+        project_id = os.environ.get('FIREBASE_PROJECT_ID')
+        private_key = os.environ.get('FIREBASE_PRIVATE_KEY', '')
+        client_email = os.environ.get('FIREBASE_CLIENT_EMAIL')
+        database_url = os.environ.get('FIREBASE_DATABASE_URL')
+        
+        # Debug: Print what we have (without exposing full private key)
+        print(f"📋 Firebase Config Check:")
+        print(f"   Project ID: {project_id}")
+        print(f"   Client Email: {client_email}")
+        print(f"   Database URL: {database_url}")
+        print(f"   Private Key Length: {len(private_key)} chars")
+        
+        # Check if all required variables are present
+        if not all([project_id, private_key, client_email, database_url]):
+            missing = []
+            if not project_id: missing.append('FIREBASE_PROJECT_ID')
+            if not private_key: missing.append('FIREBASE_PRIVATE_KEY')
+            if not client_email: missing.append('FIREBASE_CLIENT_EMAIL')
+            if not database_url: missing.append('FIREBASE_DATABASE_URL')
+            print(f"⚠️  Missing environment variables: {', '.join(missing)}")
+            return False
+        
+        # Fix private key format - handle different formats
+        if '\\n' in private_key:
+            private_key = private_key.replace('\\n', '\n')
+        
+        # Ensure proper PEM format
+        if not private_key.startswith('-----BEGIN PRIVATE KEY-----'):
+            print("⚠️  Private key doesn't start with correct header")
+            return False
+        
+        cred = credentials.Certificate({
+            "type": "service_account",
+            "project_id": project_id,
+            "private_key": private_key,
+            "client_email": client_email,
+            "token_uri": "https://oauth2.googleapis.com/token"
+        })
+        
+        firebase_admin.initialize_app(cred, {
+            'databaseURL': database_url
+        })
+        
+        sensor_ref = db.reference('sensor_data')
+        commands_ref = db.reference('commands')
+        users_ref = db.reference('users')
+        FIREBASE_ENABLED = True
+        print("✅ Firebase initialized successfully")
+        return True
+        
+    except Exception as e:
+        print(f"⚠️  Firebase initialization error: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+# Initialize Firebase on startup
+init_firebase()
+
+# ========== Database Setup (SQLite for backup) ==========
 def init_db():
     conn = sqlite3.connect('soilsense.db')
     c = conn.cursor()
@@ -260,19 +318,81 @@ def get_crop_suggestions(soil_avg, month):
     suggestions.sort(key=lambda x: x["score"], reverse=True)
     return suggestions[:8]
 
+# ========== Debug/Test Endpoints ==========
+@app.route('/api/test/firebase')
+def test_firebase():
+    """Test endpoint to check Firebase connection"""
+    result = {
+        "firebase_enabled": FIREBASE_ENABLED,
+        "env_vars": {
+            "FIREBASE_PROJECT_ID": bool(os.environ.get('FIREBASE_PROJECT_ID')),
+            "FIREBASE_CLIENT_EMAIL": bool(os.environ.get('FIREBASE_CLIENT_EMAIL')),
+            "FIREBASE_DATABASE_URL": bool(os.environ.get('FIREBASE_DATABASE_URL')),
+            "FIREBASE_PRIVATE_KEY": bool(os.environ.get('FIREBASE_PRIVATE_KEY')),
+            "FIREBASE_PRIVATE_KEY_LENGTH": len(os.environ.get('FIREBASE_PRIVATE_KEY', ''))
+        }
+    }
+    
+    if FIREBASE_ENABLED:
+        try:
+            # Try to read from Firebase
+            test_data = sensor_ref.get()
+            result["firebase_read"] = "success"
+            result["current_data"] = test_data
+        except Exception as e:
+            result["firebase_read"] = f"error: {str(e)}"
+    
+    return jsonify(result)
+
+@app.route('/api/test/push')
+def test_push():
+    """Test endpoint to push sample data to Firebase"""
+    if not FIREBASE_ENABLED:
+        return jsonify({"error": "Firebase not enabled", "firebase_enabled": False})
+    
+    try:
+        timestamp = datetime.now().isoformat()
+        test_data = {
+            'soil_percent': [50, 55, 60, 65],
+            'soil_status': 'NORMAL',
+            'pump_status': 'OFF',
+            'mode': 'AUTO',
+            'temperature': 28.5,
+            'humidity': 70.0,
+            'battery_voltage': 12.4,
+            'battery_percent': 90,
+            'current_consumed': 0.35,
+            'power': {"bus_voltage": 12.4, "current": 0.35},
+            'timestamp': timestamp
+        }
+        
+        sensor_ref.set(test_data)
+        
+        return jsonify({
+            "success": True,
+            "message": "Test data pushed to Firebase",
+            "data": test_data
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
 # ========== Auth Routes ==========
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
         username = request.form.get('username')
         password = request.form.get('password')
+        
+        # Try SQLite first
         conn = get_db()
         user = conn.execute('SELECT * FROM users WHERE username = ?', (username,)).fetchone()
         conn.close()
+        
         if user and user['password'] == hash_password(password):
             session['user_id'] = user['id']
             session['username'] = user['username']
             return redirect(url_for('index'))
+        
         return render_template('login.html', error='Invalid username or password')
     return render_template('login.html')
 
@@ -283,16 +403,32 @@ def register():
         email = request.form.get('email')
         password = request.form.get('password')
         confirm_password = request.form.get('confirm_password')
+        
         if password != confirm_password:
             return render_template('register.html', error='Passwords do not match')
         if len(password) < 6:
             return render_template('register.html', error='Password must be at least 6 characters')
+        
         try:
+            # Store in SQLite
             conn = get_db()
             conn.execute('INSERT INTO users (username, email, password) VALUES (?, ?, ?)',
                         (username, email, hash_password(password)))
             conn.commit()
             conn.close()
+            
+            # Also store in Firebase if enabled
+            if FIREBASE_ENABLED and users_ref:
+                try:
+                    users_ref.child(username).set({
+                        'username': username,
+                        'email': email,
+                        'created_at': datetime.now().isoformat()
+                    })
+                    print(f"✅ User {username} also saved to Firebase")
+                except Exception as e:
+                    print(f"⚠️  Could not save user to Firebase: {e}")
+            
             return redirect(url_for('login'))
         except sqlite3.IntegrityError:
             return render_template('register.html', error='Username or email already exists')
@@ -368,21 +504,30 @@ def esp32_push_data():
         data = request.get_json()
         timestamp = datetime.now().isoformat()
         
+        print(f"📥 Received data from ESP32: {data}")
+        print(f"🔥 Firebase enabled: {FIREBASE_ENABLED}")
+        
         # Store in Firebase (if enabled)
-        if FIREBASE_ENABLED:
-            sensor_ref.set({
-                'soil_percent': data.get('soil_percent', [0,0,0,0]),
-                'soil_status': data.get('soil_status', 'UNKNOWN'),
-                'pump_status': data.get('pump_status', 'OFF'),
-                'mode': data.get('mode', 'AUTO'),
-                'temperature': data.get('temperature'),
-                'humidity': data.get('humidity'),
-                'battery_voltage': data.get('battery_voltage'),
-                'battery_percent': data.get('battery_percent'),
-                'current_consumed': data.get('current_consumed'),
-                'power': data.get('power', {}),
-                'timestamp': timestamp
-            })
+        if FIREBASE_ENABLED and sensor_ref:
+            try:
+                sensor_ref.set({
+                    'soil_percent': data.get('soil_percent', [0,0,0,0]),
+                    'soil_status': data.get('soil_status', 'UNKNOWN'),
+                    'pump_status': data.get('pump_status', 'OFF'),
+                    'mode': data.get('mode', 'AUTO'),
+                    'temperature': data.get('temperature'),
+                    'humidity': data.get('humidity'),
+                    'battery_voltage': data.get('battery_voltage'),
+                    'battery_percent': data.get('battery_percent'),
+                    'current_consumed': data.get('current_consumed'),
+                    'power': data.get('power', {}),
+                    'timestamp': timestamp
+                })
+                print("✅ Data pushed to Firebase")
+            except Exception as e:
+                print(f"⚠️  Firebase write error: {e}")
+        else:
+            print("⚠️  Firebase not enabled, skipping Firebase write")
         
         # Also store in SQLite for backup and history
         conn = get_db()
@@ -400,15 +545,19 @@ def esp32_push_data():
         # Check for pending commands
         response_data = {"success": True}
         
-        if FIREBASE_ENABLED:
-            # Check Firebase for commands
-            cmd_data = commands_ref.get()
-            if cmd_data and not cmd_data.get('executed', True):
-                response_data["command"] = {
-                    "type": cmd_data.get('type'),
-                    "value": cmd_data.get('value')
-                }
-                commands_ref.update({'executed': True})
+        if FIREBASE_ENABLED and commands_ref:
+            try:
+                # Check Firebase for commands
+                cmd_data = commands_ref.get()
+                if cmd_data and not cmd_data.get('executed', True):
+                    response_data["command"] = {
+                        "type": cmd_data.get('type'),
+                        "value": cmd_data.get('value')
+                    }
+                    commands_ref.update({'executed': True})
+                    print(f"📤 Sending command to ESP32: {response_data['command']}")
+            except Exception as e:
+                print(f"⚠️  Firebase command read error: {e}")
         else:
             # Fallback to SQLite
             cmd = conn.execute('SELECT * FROM pump_commands WHERE executed = 0 ORDER BY created_at ASC LIMIT 1').fetchone()
@@ -421,7 +570,9 @@ def esp32_push_data():
         return jsonify(response_data)
     
     except Exception as e:
-        print(f"Error in esp32_push_data: {e}")
+        print(f"❌ Error in esp32_push_data: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({"success": False, "error": str(e)}), 500
 
 # ========== Dashboard API ==========
@@ -430,24 +581,28 @@ def esp32_push_data():
 def get_data():
     """Get current sensor data from Firebase or SQLite"""
     try:
-        if FIREBASE_ENABLED:
-            # Get from Firebase
-            data = sensor_ref.get()
-            if data:
-                return jsonify({
-                    "soil_percent": data.get('soil_percent', [0,0,0,0]),
-                    "soil_status": data.get('soil_status', 'UNKNOWN'),
-                    "pump_status": data.get('pump_status', 'OFF'),
-                    "mode": data.get('mode', 'AUTO'),
-                    "temperature": data.get('temperature'),
-                    "humidity": data.get('humidity'),
-                    "battery_voltage": data.get('battery_voltage'),
-                    "battery_percent": data.get('battery_percent'),
-                    "current_consumed": data.get('current_consumed'),
-                    "power": data.get('power', {}),
-                    "esp32_online": True,
-                    "last_update": data.get('timestamp')
-                })
+        if FIREBASE_ENABLED and sensor_ref:
+            try:
+                # Get from Firebase
+                data = sensor_ref.get()
+                if data:
+                    return jsonify({
+                        "soil_percent": data.get('soil_percent', [0,0,0,0]),
+                        "soil_status": data.get('soil_status', 'UNKNOWN'),
+                        "pump_status": data.get('pump_status', 'OFF'),
+                        "mode": data.get('mode', 'AUTO'),
+                        "temperature": data.get('temperature'),
+                        "humidity": data.get('humidity'),
+                        "battery_voltage": data.get('battery_voltage'),
+                        "battery_percent": data.get('battery_percent'),
+                        "current_consumed": data.get('current_consumed'),
+                        "power": data.get('power', {}),
+                        "esp32_online": True,
+                        "last_update": data.get('timestamp'),
+                        "source": "firebase"
+                    })
+            except Exception as e:
+                print(f"⚠️  Firebase read error: {e}")
         
         # Fallback to SQLite
         conn = get_db()
@@ -467,7 +622,8 @@ def get_data():
                 "current_consumed": data['current_consumed'],
                 "power": json.loads(data['power_data']) if data['power_data'] else {},
                 "esp32_online": bool(data['esp32_online']),
-                "last_update": data['last_update']
+                "last_update": data['last_update'],
+                "source": "sqlite"
             })
         
         return jsonify({"esp32_online": False})
@@ -480,7 +636,7 @@ def get_data():
 def set_mode(mode):
     """Send mode command via Firebase or SQLite"""
     try:
-        if FIREBASE_ENABLED:
+        if FIREBASE_ENABLED and commands_ref:
             commands_ref.set({
                 'type': 'mode',
                 'value': mode.upper(),
@@ -503,7 +659,7 @@ def set_mode(mode):
 def set_pump(state):
     """Send pump command via Firebase or SQLite"""
     try:
-        if FIREBASE_ENABLED:
+        if FIREBASE_ENABLED and commands_ref:
             commands_ref.set({
                 'type': 'pump',
                 'value': state.upper(),
@@ -572,12 +728,15 @@ def get_crop_suggestions_api():
     if stats and stats['avg_soil']:
         soil_avg = stats['avg_soil']
     else:
-        if FIREBASE_ENABLED:
-            data = sensor_ref.get()
-            if data:
-                soil_percent = data.get('soil_percent', [50,50,50,50])
-                soil_avg = sum(soil_percent) / len(soil_percent)
-            else:
+        if FIREBASE_ENABLED and sensor_ref:
+            try:
+                data = sensor_ref.get()
+                if data:
+                    soil_percent = data.get('soil_percent', [50,50,50,50])
+                    soil_avg = sum(soil_percent) / len(soil_percent)
+                else:
+                    soil_avg = 50
+            except:
                 soil_avg = 50
         else:
             current = conn.execute('SELECT soil_percent FROM sensor_current WHERE id = 1').fetchone()
