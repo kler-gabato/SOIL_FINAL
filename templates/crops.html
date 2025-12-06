@@ -404,12 +404,14 @@
     <script>
         let currentSlide = 0;
         let totalSlides = 0;
-        let cropsData = [];
+        let cropsData = []; // Current batch of crops (10 per batch)
+        let allFilteredCrops = []; // All filtered crops for current category
         let allCropsData = []; // Store all crops
         let currentCategory = 'all'; // Track current category
+        let currentBatch = 0; // Current batch index (0-based)
         
-        // Maximum number of slides to display
-        const MAX_SLIDES = 10;
+        // Number of crops per batch
+        const CROPS_PER_BATCH = 10;
         
         // Define category IDs (matching your Python CROPS_DATABASE)
         const flowerIds = ['sampaguita', 'santan', 'gumamela', 'rosal', 'marigold', 
@@ -464,6 +466,8 @@
         // FILTER BY CATEGORY
         function filterByCategory(category) {
             currentCategory = category;
+            currentBatch = 0; // Reset to first batch when changing category
+            currentSlide = 0; // Reset to first slide
             
             // Update active tab
             document.querySelectorAll('.category-tab').forEach(tab => {
@@ -472,28 +476,35 @@
             document.querySelector(`[data-category="${category}"]`).classList.add('active');
             
             // Filter crops
-            let filteredCrops = [];
             if (category === 'all') {
-                filteredCrops = allCropsData;
+                allFilteredCrops = allCropsData;
             } else if (category === 'vegetables') {
-                filteredCrops = allCropsData.filter(crop => 
+                allFilteredCrops = allCropsData.filter(crop => 
                     !flowerIds.includes(crop.id) && !fruitIds.includes(crop.id)
                 );
             } else if (category === 'fruits') {
-                filteredCrops = allCropsData.filter(crop => fruitIds.includes(crop.id));
+                allFilteredCrops = allCropsData.filter(crop => fruitIds.includes(crop.id));
             } else if (category === 'flowers') {
-                filteredCrops = allCropsData.filter(crop => flowerIds.includes(crop.id));
+                allFilteredCrops = allCropsData.filter(crop => flowerIds.includes(crop.id));
             }
             
-            // Limit to MAX_SLIDES
-            cropsData = filteredCrops.slice(0, MAX_SLIDES);
+            // Load first batch
+            loadBatch(0);
+        }
+        
+        // Load a specific batch of crops
+        function loadBatch(batchIndex) {
+            const startIndex = batchIndex * CROPS_PER_BATCH;
+            const endIndex = startIndex + CROPS_PER_BATCH;
+            cropsData = allFilteredCrops.slice(startIndex, endIndex);
             totalSlides = cropsData.length;
             currentSlide = 0;
+            currentBatch = batchIndex;
             
             if (totalSlides > 0) {
                 renderSlider();
             } else {
-                const categoryName = category.charAt(0).toUpperCase() + category.slice(1);
+                const categoryName = currentCategory.charAt(0).toUpperCase() + currentCategory.slice(1);
                 document.getElementById('cropsContainer').innerHTML = `
                     <div class="no-suggestions">
                         <div class="icon">🌱</div>
@@ -501,6 +512,21 @@
                         <p>Try selecting a different category.</p>
                     </div>
                 `;
+            }
+        }
+        
+        // Navigate to next batch
+        function nextBatch() {
+            const totalBatches = Math.ceil(allFilteredCrops.length / CROPS_PER_BATCH);
+            if (currentBatch < totalBatches - 1) {
+                loadBatch(currentBatch + 1);
+            }
+        }
+        
+        // Navigate to previous batch
+        function prevBatch() {
+            if (currentBatch > 0) {
+                loadBatch(currentBatch - 1);
             }
         }
         
@@ -547,19 +573,10 @@
         function renderSlider() {
             const container = document.getElementById('cropsContainer');
             
-            // Get total filtered crops (before limit) to show if there are more
-            let totalFiltered = 0;
-            if (currentCategory === 'all') {
-                totalFiltered = allCropsData.length;
-            } else if (currentCategory === 'vegetables') {
-                totalFiltered = allCropsData.filter(crop => 
-                    !flowerIds.includes(crop.id) && !fruitIds.includes(crop.id)
-                ).length;
-            } else if (currentCategory === 'fruits') {
-                totalFiltered = allCropsData.filter(crop => fruitIds.includes(crop.id)).length;
-            } else if (currentCategory === 'flowers') {
-                totalFiltered = allCropsData.filter(crop => flowerIds.includes(crop.id)).length;
-            }
+            const totalBatches = Math.ceil(allFilteredCrops.length / CROPS_PER_BATCH);
+            const totalCrops = allFilteredCrops.length;
+            const batchStart = (currentBatch * CROPS_PER_BATCH) + 1;
+            const batchEnd = Math.min((currentBatch + 1) * CROPS_PER_BATCH, totalCrops);
             
             let slidesHTML = cropsData.map((crop, index) => `
                 <div class="slide">${renderCropCard(crop)}</div>
@@ -569,10 +586,25 @@
                 <div class="dot ${index === 0 ? 'active' : ''}" onclick="goToSlide(${index})"></div>
             `).join('');
             
-            const moreCropsNote = totalFiltered > MAX_SLIDES ? 
-                `<div style="text-align: center; color: #94a3b8; font-size: 0.85rem; margin-top: 10px;">
-                    Showing top ${MAX_SLIDES} of ${totalFiltered} crops
-                </div>` : '';
+            // Batch navigation buttons
+            const batchNavHTML = totalBatches > 1 ? `
+                <div style="display: flex; justify-content: center; align-items: center; gap: 15px; margin-top: 15px;">
+                    <button class="slider-btn" id="prevBatchBtn" onclick="prevBatch()" 
+                            style="width: auto; padding: 8px 16px; font-size: 0.9rem;"
+                            ${currentBatch === 0 ? 'disabled' : ''}>
+                        ⬅️ Previous Batch
+                    </button>
+                    <span style="color: #94a3b8; font-size: 0.9rem;">
+                        Batch ${currentBatch + 1} / ${totalBatches} 
+                        (Crops ${batchStart}-${batchEnd} of ${totalCrops})
+                    </span>
+                    <button class="slider-btn" id="nextBatchBtn" onclick="nextBatch()" 
+                            style="width: auto; padding: 8px 16px; font-size: 0.9rem;"
+                            ${currentBatch >= totalBatches - 1 ? 'disabled' : ''}>
+                        Next Batch ➡️
+                    </button>
+                </div>
+            ` : '';
             
             container.innerHTML = `
                 <div class="slider-container">
@@ -590,7 +622,7 @@
                 <div class="slide-counter">
                     <span id="currentSlideNum">1</span> / <span id="totalSlideNum">${totalSlides}</span>
                 </div>
-                ${moreCropsNote}
+                ${batchNavHTML}
             `;
             
             updateSlider();
