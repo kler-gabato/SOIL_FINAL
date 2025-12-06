@@ -556,7 +556,7 @@
             <a href="/">🏠 Dashboard</a>
             <a href="/crops">🌾 Crops</a>
             <a href="/history">📊 History</a>
-            <a href="/my-plants" class="active">🪴 My Plants</a>
+            <a href="/my-plants" class="active">📋 My Plants</a>
             <a href="/account">👤 Account</a>
             <a href="/logout">🚪 Logout</a>
         </nav>
@@ -765,15 +765,63 @@
         function calculateDays(dateString) {
             if (!dateString) return null;
             try {
-                const date = new Date(dateString);
+                let date;
+                
+                // Handle different date formats
+                if (typeof dateString === 'string') {
+                    // If it's in YYYY-MM-DD format (from date input), parse it directly
+                    if (dateString.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                        const parts = dateString.split('-');
+                        date = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+                    } else {
+                        // Try parsing as ISO string or other formats
+                        date = new Date(dateString);
+                    }
+                } else {
+                    date = new Date(dateString);
+                }
+                
+                // Check if date is valid
+                if (isNaN(date.getTime())) {
+                    return null;
+                }
+                
                 const now = new Date();
+                
                 // Remove time component for accurate day calculation
                 const dateOnly = new Date(date.getFullYear(), date.getMonth(), date.getDate());
                 const nowOnly = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-                const diffTime = dateOnly - nowOnly;
+                
+                // Calculate difference in milliseconds
+                const diffTime = dateOnly.getTime() - nowOnly.getTime();
+                
+                // Convert to days (positive = future, negative = past)
                 const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-                return diffDays; // Negative for future dates, positive for past dates
-            } catch {
+                
+                // Return negative for future dates, positive for past dates
+                // So if date is in future (dateOnly > nowOnly), diffTime is positive, but we want negative
+                // Actually, let me think: if date is next week, dateOnly > nowOnly, so diffTime is positive
+                // But we want to return negative to indicate "in X days"
+                // So we should return -diffDays or just return the sign correctly
+                
+                // Actually, the calculation is correct: future date means dateOnly > nowOnly
+                // So diffTime is positive, and diffDays is positive
+                // But we want negative for future, so we should negate it
+                // Wait, let me recalculate: if date is 7 days in future:
+                // dateOnly = today + 7 days
+                // nowOnly = today
+                // diffTime = (today + 7) - today = 7 days worth of ms (positive)
+                // diffDays = 7 (positive)
+                // But we want -7 to show "in 7 days"
+                
+                // So we need to negate it, OR change the calculation
+                // Let me fix: diffTime = nowOnly - dateOnly for past dates to be positive
+                // Actually, the standard is: future dates should return negative
+                // So: if date is future, return negative number
+                
+                return -diffDays; // Negate so future dates are negative
+            } catch (e) {
+                console.error('Error calculating days:', e, 'for date:', dateString);
                 return null;
             }
         }
