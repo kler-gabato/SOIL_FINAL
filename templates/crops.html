@@ -408,6 +408,9 @@
         let allCropsData = []; // Store all crops
         let currentCategory = 'all'; // Track current category
         
+        // Maximum number of slides to display
+        const MAX_SLIDES = 10;
+        
         // Define category IDs (matching your Python CROPS_DATABASE)
         const flowerIds = ['sampaguita', 'santan', 'gumamela', 'rosal', 'marigold', 
                            'sunflower', 'zinnia', 'bougainvillea', 'adelfa', 'kalachuchi',
@@ -469,18 +472,21 @@
             document.querySelector(`[data-category="${category}"]`).classList.add('active');
             
             // Filter crops
+            let filteredCrops = [];
             if (category === 'all') {
-                cropsData = allCropsData;
+                filteredCrops = allCropsData;
             } else if (category === 'vegetables') {
-                cropsData = allCropsData.filter(crop => 
+                filteredCrops = allCropsData.filter(crop => 
                     !flowerIds.includes(crop.id) && !fruitIds.includes(crop.id)
                 );
             } else if (category === 'fruits') {
-                cropsData = allCropsData.filter(crop => fruitIds.includes(crop.id));
+                filteredCrops = allCropsData.filter(crop => fruitIds.includes(crop.id));
             } else if (category === 'flowers') {
-                cropsData = allCropsData.filter(crop => flowerIds.includes(crop.id));
+                filteredCrops = allCropsData.filter(crop => flowerIds.includes(crop.id));
             }
             
+            // Limit to MAX_SLIDES
+            cropsData = filteredCrops.slice(0, MAX_SLIDES);
             totalSlides = cropsData.length;
             currentSlide = 0;
             
@@ -541,6 +547,20 @@
         function renderSlider() {
             const container = document.getElementById('cropsContainer');
             
+            // Get total filtered crops (before limit) to show if there are more
+            let totalFiltered = 0;
+            if (currentCategory === 'all') {
+                totalFiltered = allCropsData.length;
+            } else if (currentCategory === 'vegetables') {
+                totalFiltered = allCropsData.filter(crop => 
+                    !flowerIds.includes(crop.id) && !fruitIds.includes(crop.id)
+                ).length;
+            } else if (currentCategory === 'fruits') {
+                totalFiltered = allCropsData.filter(crop => fruitIds.includes(crop.id)).length;
+            } else if (currentCategory === 'flowers') {
+                totalFiltered = allCropsData.filter(crop => flowerIds.includes(crop.id)).length;
+            }
+            
             let slidesHTML = cropsData.map((crop, index) => `
                 <div class="slide">${renderCropCard(crop)}</div>
             `).join('');
@@ -548,6 +568,11 @@
             let dotsHTML = cropsData.map((_, index) => `
                 <div class="dot ${index === 0 ? 'active' : ''}" onclick="goToSlide(${index})"></div>
             `).join('');
+            
+            const moreCropsNote = totalFiltered > MAX_SLIDES ? 
+                `<div style="text-align: center; color: #94a3b8; font-size: 0.85rem; margin-top: 10px;">
+                    Showing top ${MAX_SLIDES} of ${totalFiltered} crops
+                </div>` : '';
             
             container.innerHTML = `
                 <div class="slider-container">
@@ -565,6 +590,7 @@
                 <div class="slide-counter">
                     <span id="currentSlideNum">1</span> / <span id="totalSlideNum">${totalSlides}</span>
                 </div>
+                ${moreCropsNote}
             `;
             
             updateSlider();
