@@ -12,6 +12,11 @@ app = Flask(__name__)
 CORS(app)
 app.secret_key = os.environ.get('SECRET_KEY', 'your-secret-key-change-this-in-production')
 
+# Constants
+ESP32_TIMEOUT_SECONDS = 30  # ESP32 considered offline if no data for 30 seconds
+DEFAULT_SOIL_MOISTURE = 50  # Default soil moisture percentage
+REGISTRATION_TOKEN = "soilsense-secret-token@2025"  # Required token for registration
+
 # ========== Firebase Setup ==========
 FIREBASE_ENABLED = False
 sensor_ref = None
@@ -171,7 +176,40 @@ def get_db():
     return conn
 
 def hash_password(password):
+    """Hash password using SHA256. Note: For production, consider using bcrypt."""
     return hashlib.sha256(password.encode()).hexdigest()
+
+def get_soil_avg_from_db(conn=None):
+    """Helper function to get average soil moisture from database or Firebase."""
+    if FIREBASE_ENABLED and sensor_ref:
+        try:
+            data = sensor_ref.get()
+            if data:
+                soil_percent = data.get('soil_percent', [DEFAULT_SOIL_MOISTURE] * 4)
+                return sum(soil_percent) / len(soil_percent) if soil_percent else DEFAULT_SOIL_MOISTURE
+        except Exception as e:
+            print(f"⚠️  Error reading from Firebase: {e}")
+    
+    # Fallback to SQLite
+    if conn is None:
+        conn = get_db()
+        should_close = True
+    else:
+        should_close = False
+    
+    try:
+        current = conn.execute('SELECT soil_percent FROM sensor_current WHERE id = 1').fetchone()
+        if current and current['soil_percent']:
+            try:
+                soil_percent = json.loads(current['soil_percent'])
+                return sum(soil_percent) / len(soil_percent) if soil_percent else DEFAULT_SOIL_MOISTURE
+            except (json.JSONDecodeError, ValueError, TypeError) as e:
+                print(f"⚠️  Error parsing soil_percent: {e}")
+    finally:
+        if should_close:
+            conn.close()
+    
+    return DEFAULT_SOIL_MOISTURE
 
 def login_required(f):
     from functools import wraps
@@ -741,15 +779,33 @@ def register():
         email = request.form.get('email')
         password = request.form.get('password')
         confirm_password = request.form.get('confirm_password')
+        registration_token = request.form.get('registration_token', '').strip()
+        
+        # Validate registration token
+        if registration_token != REGISTRATION_TOKEN:
+            return render_template('register.html', error='Invalid registration token. Please provide a valid token to register.')
         
         if password != confirm_password:
             return render_template('register.html', error='Passwords do not match')
         if len(password) < 6:
             return render_template('register.html', error='Password must be at least 6 characters')
         
+        # Check for duplicate username and email before attempting insert
+        conn = get_db()
         try:
+            # Check if username already exists
+            existing_username = conn.execute('SELECT id FROM users WHERE username = ?', (username,)).fetchone()
+            if existing_username:
+                conn.close()
+                return render_template('register.html', error='Username already exists. Please choose a different username.')
+            
+            # Check if email already exists
+            existing_email = conn.execute('SELECT id FROM users WHERE email = ?', (email,)).fetchone()
+            if existing_email:
+                conn.close()
+                return render_template('register.html', error='Email already exists. Please use a different email address.')
+            
             # Store in SQLite
-            conn = get_db()
             conn.execute('INSERT INTO users (username, email, password) VALUES (?, ?, ?)',
                         (username, email, hash_password(password)))
             conn.commit()
@@ -768,8 +824,10 @@ def register():
                     print(f"⚠️  Could not save user to Firebase: {e}")
             
             return redirect(url_for('login'))
-        except sqlite3.IntegrityError:
-            return render_template('register.html', error='Username or email already exists')
+        except Exception as e:
+            if conn:
+                conn.close()
+            return render_template('register.html', error=f'Registration failed: {str(e)}')
     return render_template('register.html')
 
 @app.route('/logout')
@@ -815,12 +873,10 @@ def update_account():
                     (username, email, session['user_id']))
     
     conn.commit()
-    conn.close()
-    session['username'] = username
-    
-    conn = get_db()
+    # Refresh user data from database
     user = conn.execute('SELECT * FROM users WHERE id = ?', (session['user_id'],)).fetchone()
     conn.close()
+    session['username'] = username
     return render_template('account.html', user=user, success='Account updated successfully')
 
 # ========== Dashboard Routes ==========
@@ -848,24 +904,7 @@ def crops():
     if stats and stats['avg_soil']:
         soil_avg = stats['avg_soil']
     else:
-        # Try to get from Firebase
-        if FIREBASE_ENABLED and sensor_ref:
-            try:
-                data = sensor_ref.get()
-                if data:
-                    soil_percent = data.get('soil_percent', [50,50,50,50])
-                    soil_avg = sum(soil_percent) / len(soil_percent)
-                else:
-                    soil_avg = 50
-            except:
-                soil_avg = 50
-        else:
-            current = conn.execute('SELECT soil_percent FROM sensor_current WHERE id = 1').fetchone()
-            if current and current['soil_percent']:
-                soil_percent = json.loads(current['soil_percent'])
-                soil_avg = sum(soil_percent) / len(soil_percent)
-            else:
-                soil_avg = 50
+        soil_avg = get_soil_avg_from_db(conn)
     
     conn.close()
     
@@ -907,6 +946,7 @@ def settings():
 @app.route('/api/my_plants/add', methods=['POST'])
 @login_required
 def add_my_plant():
+    conn = None
     try:
         data = request.json
         conn = get_db()
@@ -917,7 +957,6 @@ def add_my_plant():
                                (session.get('user_id'), data['plant_id'])).fetchone()
         
         if existing:
-            conn.close()
             return jsonify({"success": False, "error": "Plant already in your list"})
         
         conn.execute('''INSERT INTO my_plants 
@@ -931,34 +970,36 @@ def add_my_plant():
         conn.commit()
         result = conn.execute('SELECT last_insert_rowid()').fetchone()
         plant_id = result[0] if result else None
-        conn.close()
         
         return jsonify({"success": True, "plant_id": plant_id})
     except Exception as e:
-        if 'conn' in locals():
-            conn.close()
         return jsonify({"success": False, "error": str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
 
 @app.route('/api/my_plants/remove/<int:plant_id>', methods=['DELETE'])
 @login_required
 def remove_my_plant(plant_id):
+    conn = None
     try:
         conn = get_db()
         conn.execute('''DELETE FROM my_plants 
                        WHERE id = ? AND user_id = ?''',
                     (plant_id, session.get('user_id')))
         conn.commit()
-        conn.close()
         
         return jsonify({"success": True})
     except Exception as e:
-        if 'conn' in locals():
-            conn.close()
         return jsonify({"success": False, "error": str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
 
 @app.route('/api/my_plants/update/<int:plant_id>', methods=['POST'])
 @login_required
 def update_my_plant(plant_id):
+    conn = None
     try:
         data = request.json
         conn = get_db()
@@ -1024,35 +1065,37 @@ def update_my_plant(plant_id):
                            WHERE id = ? AND user_id = ?''', params)
             conn.commit()
         
-        conn.close()
         return jsonify({"success": True})
     except Exception as e:
-        if 'conn' in locals():
-            conn.close()
         return jsonify({"success": False, "error": str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
 
 @app.route('/api/my_plants/list')
 @login_required
 def get_my_plants():
+    conn = None
     try:
         conn = get_db()
         plants = conn.execute('''SELECT * FROM my_plants 
                                 WHERE user_id = ? 
                                 ORDER BY created_at DESC''',
                              (session.get('user_id'),)).fetchall()
-        conn.close()
         
         return jsonify([dict(p) for p in plants])
     except Exception as e:
-        if 'conn' in locals():
-            conn.close()
         return jsonify({"error": str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
 
 # ========== ESP32 API with Firebase ==========
 @app.route('/api/esp32/push', methods=['POST'])
 @app.route('/esp32/push_data', methods=['POST'])
 def esp32_push_data():
     """ESP32 pushes data to Firebase and SQLite"""
+    conn = None
     try:
         data = request.get_json()
         timestamp = datetime.now().isoformat()
@@ -1140,7 +1183,6 @@ def esp32_push_data():
                 conn.execute('UPDATE pump_commands SET executed = 1 WHERE id = ?', (cmd['id'],))
         
         conn.commit()
-        conn.close()
         return jsonify(response_data)
     
     except Exception as e:
@@ -1148,10 +1190,14 @@ def esp32_push_data():
         import traceback
         traceback.print_exc()
         return jsonify({"success": False, "error": str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
 
 @app.route('/esp32/get_command', methods=['GET'])
 def esp32_get_command():
     """ESP32 polls for commands (fallback method)"""
+    conn = None
     try:
         if FIREBASE_ENABLED and commands_ref:
             try:
@@ -1175,7 +1221,6 @@ def esp32_get_command():
         if command:
             conn.execute('UPDATE pump_commands SET executed = 1 WHERE id = ?', (command['id'],))
             conn.commit()
-            conn.close()
             
             return jsonify({
                 "has_command": True,
@@ -1183,12 +1228,14 @@ def esp32_get_command():
                 "value": command['value']
             })
         
-        conn.close()
         return jsonify({"has_command": False})
     
     except Exception as e:
         print(f"❌ Error in esp32_get_command: {e}")
         return jsonify({"has_command": False, "error": str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
 
 # ========== Dashboard API ==========
 @app.route('/api/data')
@@ -1207,9 +1254,10 @@ def get_data():
                         try:
                             last_update = datetime.fromisoformat(data['timestamp'])
                             time_diff = (datetime.now() - last_update).total_seconds()
-                            esp32_online = time_diff < 30
-                        except:
-                            pass
+                            esp32_online = time_diff < ESP32_TIMEOUT_SECONDS
+                        except (ValueError, TypeError, AttributeError) as e:
+                            print(f"⚠️  Error parsing timestamp: {e}")
+                            esp32_online = False
                     
                     return jsonify({
                         "soil_percent": data.get('soil_percent', [0,0,0,0]),
@@ -1233,19 +1281,20 @@ def get_data():
         conn = get_db()
         data = conn.execute('SELECT * FROM sensor_current WHERE id = 1').fetchone()
         
-        # Check if ESP32 is still online (data received within last 30 seconds)
+        # Check if ESP32 is still online (data received within timeout period)
         esp32_online = False
         if data and data['last_update']:
             try:
                 last_update = datetime.fromisoformat(data['last_update'])
                 time_diff = (datetime.now() - last_update).total_seconds()
-                esp32_online = bool(data['esp32_online']) and time_diff < 30
+                esp32_online = bool(data['esp32_online']) and time_diff < ESP32_TIMEOUT_SECONDS
                 
                 # Update online status if timeout
                 if not esp32_online and data['esp32_online']:
                     conn.execute('UPDATE sensor_current SET esp32_online = 0 WHERE id = 1')
                     conn.commit()
-            except (ValueError, AttributeError, TypeError):
+            except (ValueError, AttributeError, TypeError) as e:
+                print(f"⚠️  Error checking ESP32 online status: {e}")
                 esp32_online = bool(data.get('esp32_online', False))
         
         conn.close()
@@ -1276,6 +1325,7 @@ def get_data():
 @login_required
 def set_mode(mode):
     """Send mode command via Firebase or SQLite"""
+    conn = None
     try:
         if FIREBASE_ENABLED and commands_ref:
             commands_ref.set({
@@ -1289,16 +1339,19 @@ def set_mode(mode):
             conn.execute('INSERT INTO pump_commands (command_type, value, user_id) VALUES (?, ?, ?)', 
                         ('mode', mode.upper(), session.get('user_id')))
             conn.commit()
-            conn.close()
         
         return jsonify({"success": True})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
 
 @app.route('/api/pump/<state>')
 @login_required
 def set_pump(state):
     """Send pump command via Firebase or SQLite"""
+    conn = None
     try:
         if FIREBASE_ENABLED and commands_ref:
             commands_ref.set({
@@ -1312,43 +1365,58 @@ def set_pump(state):
             conn.execute('INSERT INTO pump_commands (command_type, value, user_id) VALUES (?, ?, ?)', 
                         ('pump', state.upper(), session.get('user_id')))
             conn.commit()
-            conn.close()
         
         return jsonify({"success": True})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
 
 @app.route('/api/save_reading', methods=['POST'])
 @login_required
 def save_reading():
-    data = request.json
-    conn = get_db()
-    conn.execute('''INSERT INTO sensor_history 
-        (user_id, soil_avg, soil1, soil2, soil3, soil4, temperature, humidity, 
-         pump_status, mode, battery_voltage, battery_percent, current_consumed)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-        (session.get('user_id'),
-         data.get('soil_avg'), data.get('soil1'), data.get('soil2'), data.get('soil3'),
-         data.get('soil4'), data.get('temperature'), data.get('humidity'),
-         data.get('pump_status'), data.get('mode'), data.get('battery_voltage'),
-         data.get('battery_percent'), data.get('current_consumed')))
-    conn.commit()
-    conn.close()
-    return jsonify({"success": True})
+    conn = None
+    try:
+        data = request.json
+        conn = get_db()
+        conn.execute('''INSERT INTO sensor_history 
+            (user_id, soil_avg, soil1, soil2, soil3, soil4, temperature, humidity, 
+             pump_status, mode, battery_voltage, battery_percent, current_consumed)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+            (session.get('user_id'),
+             data.get('soil_avg'), data.get('soil1'), data.get('soil2'), data.get('soil3'),
+             data.get('soil4'), data.get('temperature'), data.get('humidity'),
+             data.get('pump_status'), data.get('mode'), data.get('battery_voltage'),
+             data.get('battery_percent'), data.get('current_consumed')))
+        conn.commit()
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
 
 @app.route('/api/history')
 @login_required
 def get_history():
-    conn = get_db()
-    history = conn.execute('''SELECT * FROM sensor_history 
-                             ORDER BY recorded_at DESC LIMIT 100''').fetchall()
-    conn.close()
-    return jsonify([dict(row) for row in history])
+    conn = None
+    try:
+        conn = get_db()
+        history = conn.execute('''SELECT * FROM sensor_history 
+                                 ORDER BY recorded_at DESC LIMIT 100''').fetchall()
+        return jsonify([dict(row) for row in history])
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
 
 @app.route('/api/history_stats')
 @login_required
 def get_history_stats():
     """Get statistics for history page"""
+    conn = None
     try:
         conn = get_db()
         
@@ -1395,8 +1463,6 @@ def get_history_stats():
             FROM sensor_history WHERE recorded_at >= ?''', 
             (seven_days_ago.isoformat(),)).fetchone()
         
-        conn.close()
-        
         return jsonify({
             "pump": {
                 "total_on_events": pump_on_count,
@@ -1411,11 +1477,15 @@ def get_history_stats():
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
 
 @app.route('/api/pump_events')
 @login_required
 def get_pump_events():
     """Get pump events from history"""
+    conn = None
     try:
         limit = request.args.get('limit', 100, type=int)
         conn = get_db()
@@ -1443,15 +1513,18 @@ def get_pump_events():
                 })
             prev_status = current_status
         
-        conn.close()
         return jsonify(events)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
 
 @app.route('/api/soil_history')
 @login_required
 def get_soil_history():
     """Get soil moisture history"""
+    conn = None
     try:
         limit = request.args.get('limit', 50, type=int)
         conn = get_db()
@@ -1461,23 +1534,31 @@ def get_soil_history():
             FROM sensor_history 
             ORDER BY recorded_at DESC 
             LIMIT ?''', (limit,)).fetchall()
-        conn.close()
         return jsonify([dict(row) for row in history])
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
 
 @app.route('/api/monthly_stats')
 @login_required
 def get_monthly_stats():
-    conn = get_db()
-    current_month = datetime.now().strftime('%Y-%m')
-    stats = conn.execute('''SELECT 
-        AVG(soil_avg) as avg_soil, AVG(temperature) as avg_temp, AVG(humidity) as avg_humidity,
-        MIN(soil_avg) as min_soil, MAX(soil_avg) as max_soil,
-        MIN(temperature) as min_temp, MAX(temperature) as max_temp, COUNT(*) as reading_count
-        FROM sensor_history WHERE strftime('%Y-%m', recorded_at) = ?''', (current_month,)).fetchone()
-    conn.close()
-    return jsonify(dict(stats) if stats else {})
+    conn = None
+    try:
+        conn = get_db()
+        current_month = datetime.now().strftime('%Y-%m')
+        stats = conn.execute('''SELECT 
+            AVG(soil_avg) as avg_soil, AVG(temperature) as avg_temp, AVG(humidity) as avg_humidity,
+            MIN(soil_avg) as min_soil, MAX(soil_avg) as max_soil,
+            MIN(temperature) as min_temp, MAX(temperature) as max_temp, COUNT(*) as reading_count
+            FROM sensor_history WHERE strftime('%Y-%m', recorded_at) = ?''', (current_month,)).fetchone()
+        return jsonify(dict(stats) if stats else {})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
 
 @app.route('/api/crop_suggestions')
 @login_required
@@ -1492,23 +1573,7 @@ def get_crop_suggestions_api():
     if stats and stats['avg_soil']:
         soil_avg = stats['avg_soil']
     else:
-        if FIREBASE_ENABLED and sensor_ref:
-            try:
-                data = sensor_ref.get()
-                if data:
-                    soil_percent = data.get('soil_percent', [50,50,50,50])
-                    soil_avg = sum(soil_percent) / len(soil_percent)
-                else:
-                    soil_avg = 50
-            except:
-                soil_avg = 50
-        else:
-            current = conn.execute('SELECT soil_percent FROM sensor_current WHERE id = 1').fetchone()
-            if current and current['soil_percent']:
-                soil_percent = json.loads(current['soil_percent'])
-                soil_avg = sum(soil_percent) / len(soil_percent)
-            else:
-                soil_avg = 50
+        soil_avg = get_soil_avg_from_db(conn)
     
     conn.close()
     
@@ -1523,9 +1588,13 @@ def get_crop_suggestions_api():
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
+    secret_key = os.environ.get('SECRET_KEY')
+    
     print("="*60)
     print("🌱 SoilSense Online Server Starting...")
     print("="*60)
+    if not secret_key or secret_key == 'your-secret-key-change-this-in-production':
+        print("⚠️  WARNING: Using default secret key! Set SECRET_KEY environment variable for production.")
     print(f"🔥 Firebase: {'ENABLED ✅' if FIREBASE_ENABLED else 'DISABLED ⚠️'}")
     print("💾 SQLite: Used for backup and history")
     print(f"🌐 Server: Running on port {port}")
