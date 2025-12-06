@@ -1,0 +1,1225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>History - SoilSense</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+            color: #fff;
+            padding: 20px;
+        }
+        
+        .container { 
+            max-width: 1400px; 
+            margin: 0 auto; 
+        }
+        
+        header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        header h1 {
+            font-size: 2.2rem;
+            color: #4ade80;
+            margin-bottom: 8px;
+        }
+        
+        header p { 
+            color: #94a3b8; 
+            font-size: 0.95rem;
+        }
+        
+        /* NAVIGATION LINKS */
+        .nav-links {
+            display: flex;
+            justify-content: center;
+            gap: 12px;
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+        }
+        
+        .nav-links a {
+            color: #94a3b8;
+            text-decoration: none;
+            padding: 8px 14px;
+            border-radius: 20px;
+            background: rgba(255,255,255,0.05);
+            transition: all 0.3s;
+            font-size: 0.9rem;
+            white-space: nowrap;
+        }
+        
+        .nav-links a:hover {
+            background: rgba(255,255,255,0.1);
+            color: #fff;
+        }
+        
+        .nav-links a.active {
+            background: #4ade80;
+            color: #000;
+            font-weight: 600;
+        }
+        
+        .realtime-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(74, 222, 128, 0.1);
+            border: 1px solid rgba(74, 222, 128, 0.3);
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            color: #4ade80;
+            margin-top: 10px;
+        }
+        
+        .realtime-indicator .pulse {
+            width: 8px;
+            height: 8px;
+            background: #4ade80;
+            border-radius: 50%;
+            animation: pulse 2s ease-in-out infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(0.9); }
+        }
+        
+        .last-update-time {
+            font-size: 0.8rem;
+            color: #64748b;
+            margin-top: 5px;
+        }
+        
+        .refresh-controls {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 15px;
+            margin-top: 15px;
+            flex-wrap: wrap;
+        }
+        
+        .refresh-btn {
+            background: rgba(74, 222, 128, 0.1);
+            border: 1px solid rgba(74, 222, 128, 0.3);
+            color: #4ade80;
+            padding: 8px 16px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        
+        .refresh-btn:hover {
+            background: rgba(74, 222, 128, 0.2);
+            transform: translateY(-1px);
+        }
+        
+        .refresh-btn:active {
+            transform: translateY(0);
+        }
+        
+        .interval-selector {
+            display: flex;
+            gap: 5px;
+            align-items: center;
+        }
+        
+        .interval-btn {
+            padding: 6px 12px;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.2);
+            color: #94a3b8;
+            border-radius: 15px;
+            cursor: pointer;
+            font-size: 0.8rem;
+            transition: all 0.3s;
+        }
+        
+        .interval-btn:hover {
+            background: rgba(255,255,255,0.1);
+        }
+        
+        .interval-btn.active {
+            background: #4ade80;
+            color: #000;
+            border-color: #4ade80;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+        
+        .stat-card {
+            background: rgba(255,255,255,0.05);
+            border-radius: 16px;
+            padding: 22px;
+            border: 1px solid rgba(255,255,255,0.1);
+            text-align: center;
+            transition: transform 0.2s;
+        }
+        
+        .stat-card:hover {
+            transform: translateY(-2px);
+            background: rgba(255,255,255,0.08);
+        }
+        
+        .stat-card .icon {
+            font-size: 1.8rem;
+            margin-bottom: 12px;
+        }
+        
+        .stat-card .value {
+            font-size: 1.6rem;
+            font-weight: bold;
+            color: #4ade80;
+            margin-bottom: 6px;
+            line-height: 1.2;
+        }
+        
+        .stat-card .label {
+            color: #94a3b8;
+            font-size: 0.8rem;
+            font-weight: 500;
+        }
+        
+        .card {
+            background: rgba(255,255,255,0.05);
+            border-radius: 16px;
+            padding: 24px;
+            border: 1px solid rgba(255,255,255,0.1);
+            margin-bottom: 25px;
+        }
+        
+        .card h2 {
+            color: #4ade80;
+            font-size: 1.2rem;
+            margin-bottom: 20px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-weight: 600;
+        }
+        
+        .filters {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        
+        .filter-btn {
+            padding: 10px 18px;
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 20px;
+            background: rgba(255,255,255,0.05);
+            color: #94a3b8;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-size: 0.8rem;
+            font-weight: 500;
+        }
+        
+        .filter-btn:hover {
+            background: rgba(255,255,255,0.1);
+            color: #fff;
+        }
+        
+        .filter-btn.active {
+            background: #4ade80;
+            color: #000;
+            border-color: #4ade80;
+            font-weight: 600;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+        
+        thead {
+            background: rgba(255,255,255,0.05);
+        }
+        
+        th {
+            padding: 12px;
+            text-align: left;
+            color: #4ade80;
+            font-weight: 600;
+            font-size: 0.85rem;
+        }
+        
+        td {
+            padding: 12px;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            font-size: 0.85rem;
+        }
+        
+        tbody tr {
+            transition: background 0.2s;
+        }
+        
+        tbody tr:hover {
+            background: rgba(255,255,255,0.03);
+        }
+        
+        .status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+        
+        .badge-on {
+            background: rgba(74, 222, 128, 0.2);
+            color: #4ade80;
+        }
+        
+        .badge-off {
+            background: rgba(148, 163, 184, 0.2);
+            color: #94a3b8;
+        }
+        
+        .badge-manual {
+            background: rgba(59, 130, 246, 0.2);
+            color: #60a5fa;
+        }
+        
+        .badge-auto {
+            background: rgba(168, 85, 247, 0.2);
+            color: #c084fc;
+        }
+        
+        .moisture-bar {
+            width: 100%;
+            height: 8px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        
+        .moisture-fill {
+            height: 100%;
+            border-radius: 4px;
+            transition: width 0.3s;
+        }
+        
+        .moisture-low { background: #ef4444; }
+        .moisture-medium { background: #f59e0b; }
+        .moisture-high { background: #4ade80; }
+        
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #64748b;
+        }
+        
+        .empty-state .icon {
+            font-size: 3rem;
+            margin-bottom: 15px;
+        }
+        
+        .empty-state p {
+            font-size: 1.1rem;
+            margin-bottom: 10px;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #94a3b8;
+        }
+        
+        .loading::after {
+            content: '...';
+            animation: dots 1.5s steps(4, end) infinite;
+        }
+        
+        @keyframes dots {
+            0%, 20% { content: '.'; }
+            40% { content: '..'; }
+            60%, 100% { content: '...'; }
+        }
+        
+        .timestamp {
+            color: #64748b;
+            font-size: 0.8rem;
+        }
+        
+        /* Table wrapper for horizontal scroll on mobile */
+        .table-wrapper {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            margin: 0 -24px;
+            padding: 0 24px;
+        }
+        
+        .table-wrapper table {
+            min-width: 600px;
+        }
+        
+        /* MOBILE RESPONSIVE */
+        @media (max-width: 768px) {
+            body {
+                padding: 15px;
+            }
+            
+            .container {
+                max-width: 100%;
+            }
+            
+            header {
+                margin-bottom: 20px;
+            }
+            
+            header h1 {
+                font-size: 1.8rem;
+            }
+            
+            header p {
+                font-size: 0.85rem;
+            }
+            
+            .nav-links {
+                gap: 8px;
+                margin-bottom: 20px;
+            }
+            
+            .nav-links a {
+                padding: 6px 12px;
+                font-size: 0.8rem;
+            }
+            
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 12px;
+                margin-bottom: 20px;
+            }
+            
+            .stat-card {
+                padding: 18px;
+            }
+            
+            .stat-card .icon {
+                font-size: 1.6rem;
+                margin-bottom: 10px;
+            }
+            
+            .stat-card .value {
+                font-size: 1.5rem;
+            }
+            
+            .stat-card .label {
+                font-size: 0.75rem;
+            }
+            
+            .card {
+                padding: 18px;
+                margin-bottom: 20px;
+            }
+            
+            .card h2 {
+                font-size: 1.1rem;
+                margin-bottom: 15px;
+            }
+            
+            .filters {
+                gap: 8px;
+                margin-bottom: 15px;
+                flex-wrap: wrap;
+            }
+            
+            .filter-btn {
+                padding: 8px 14px;
+                font-size: 0.8rem;
+            }
+            
+            .table-wrapper {
+                margin: 0 -18px;
+                padding: 0 18px;
+            }
+            
+            .table-wrapper table {
+                min-width: 700px;
+                font-size: 0.8rem;
+            }
+            
+            th, td {
+                padding: 10px 8px;
+            }
+            
+            .refresh-controls {
+                flex-direction: column;
+                gap: 12px;
+                align-items: stretch;
+            }
+            
+            .refresh-btn {
+                width: 100%;
+                justify-content: center;
+            }
+            
+            .interval-selector {
+                width: 100%;
+                justify-content: center;
+                flex-wrap: wrap;
+            }
+            
+            .interval-label {
+                width: 100%;
+                text-align: center;
+                margin-bottom: 8px;
+            }
+            
+            .realtime-indicator {
+                font-size: 0.8rem;
+                padding: 5px 10px;
+            }
+            
+            .last-update-time {
+                font-size: 0.75rem;
+            }
+        }
+        
+        @media (max-width: 480px) {
+            body {
+                padding: 12px;
+            }
+            
+            header {
+                margin-bottom: 15px;
+            }
+            
+            header h1 {
+                font-size: 1.5rem;
+            }
+            
+            header p {
+                font-size: 0.8rem;
+            }
+            
+            .nav-links {
+                gap: 6px;
+                margin-bottom: 15px;
+            }
+            
+            .nav-links a {
+                padding: 6px 10px;
+                font-size: 0.75rem;
+            }
+            
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 10px;
+                margin-bottom: 15px;
+            }
+            
+            .stat-card {
+                padding: 14px;
+            }
+            
+            .stat-card .icon {
+                font-size: 1.4rem;
+                margin-bottom: 8px;
+            }
+            
+            .stat-card .value {
+                font-size: 1.3rem;
+            }
+            
+            .stat-card .label {
+                font-size: 0.7rem;
+            }
+            
+            .card {
+                padding: 15px;
+                margin-bottom: 15px;
+            }
+            
+            .card h2 {
+                font-size: 1rem;
+                margin-bottom: 12px;
+            }
+            
+            .filters {
+                gap: 6px;
+                margin-bottom: 12px;
+            }
+            
+            .filter-btn {
+                padding: 7px 12px;
+                font-size: 0.75rem;
+            }
+            
+            .table-wrapper {
+                margin: 0 -15px;
+                padding: 0 15px;
+            }
+            
+            .table-wrapper table {
+                min-width: 650px;
+                font-size: 0.75rem;
+            }
+            
+            th {
+                font-size: 0.7rem;
+                padding: 8px 6px;
+            }
+            
+            td {
+                padding: 8px 6px;
+                font-size: 0.7rem;
+            }
+            
+            .status-badge {
+                font-size: 0.7rem;
+                padding: 3px 10px;
+            }
+            
+            .timestamp {
+                font-size: 0.7rem;
+            }
+            
+            .refresh-controls {
+                gap: 10px;
+            }
+            
+            .refresh-btn {
+                padding: 8px 14px;
+                font-size: 0.75rem;
+            }
+            
+            .interval-selector {
+                gap: 4px;
+            }
+            
+            .interval-label {
+                font-size: 0.7rem;
+            }
+            
+            .interval-btn {
+                padding: 5px 10px;
+                font-size: 0.7rem;
+            }
+            
+            .realtime-indicator {
+                font-size: 0.75rem;
+                padding: 4px 8px;
+            }
+            
+            .last-update-time {
+                font-size: 0.7rem;
+            }
+            
+            .moisture-bar {
+                height: 6px;
+            }
+        }
+        
+        /* Very small screens */
+        @media (max-width: 360px) {
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .stat-card {
+                padding: 12px;
+            }
+            
+            .nav-links a {
+                padding: 5px 8px;
+                font-size: 0.7rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Main Content -->
+    <div class="container">
+        <header>
+            <h1>🌱 SoilSense</h1>
+            <p>History - Detailed records of pump activity and soil moisture</p>
+        </header>
+        
+        <!-- Traditional Navigation Links -->
+        <nav class="nav-links">
+            <a href="/">🏠 Dashboard</a>
+            <a href="/crops">🌾 Crops</a>
+            <a href="/history" class="active">📊 History</a>
+            <a href="/my-plants">📋 My Plants</a>
+            <a href="/account">👤 Account</a>
+            <a href="/logout">🚪 Logout</a>
+        </nav>
+        
+        <!-- Real-Time Status -->
+        <div style="text-align: center; margin-bottom: 30px;">
+            <div class="realtime-indicator">
+                <span class="pulse"></span>
+                <span>Real-time Updates Active</span>
+            </div>
+            <div class="last-update-time" id="lastUpdate">Last updated: Just now</div>
+            
+            <div class="refresh-controls">
+                <button class="refresh-btn" onclick="manualRefresh()">
+                    <span>🔄</span>
+                    <span>Refresh Now</span>
+                </button>
+                
+                <div class="interval-selector">
+                    <span class="interval-label" style="color: #94a3b8; font-size: 0.85rem;">Update every:</span>
+                    <button class="interval-btn" onclick="setUpdateInterval(3)">3s</button>
+                    <button class="interval-btn active" onclick="setUpdateInterval(5)">5s</button>
+                    <button class="interval-btn" onclick="setUpdateInterval(10)">10s</button>
+                    <button class="interval-btn" onclick="setUpdateInterval(30)">30s</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Statistics Cards -->
+        <div class="stats-grid" id="statsGrid">
+            <div class="loading">Loading statistics</div>
+        </div>
+        
+        <!-- Pump Events Section -->
+        <div class="card">
+            <h2>💧 Pump Activity Log</h2>
+            
+            <div class="filters">
+                <button class="filter-btn active" onclick="filterPumpEvents('all')">All Events</button>
+                <button class="filter-btn" onclick="filterPumpEvents('on')">Pump ON</button>
+                <button class="filter-btn" onclick="filterPumpEvents('off')">Pump OFF</button>
+                <button class="filter-btn" onclick="filterPumpEvents('manual')">Manual</button>
+                <button class="filter-btn" onclick="filterPumpEvents('auto')">Auto</button>
+            </div>
+            
+            <div id="pumpEventsTable">
+                <div class="loading">Loading pump events</div>
+            </div>
+        </div>
+        
+        <!-- Soil Moisture History Section -->
+        <div class="card">
+            <h2>🌱 Soil Moisture History</h2>
+            
+            <div class="filters">
+                <button class="filter-btn active" onclick="loadSoilHistory(50)">Last 50</button>
+                <button class="filter-btn" onclick="loadSoilHistory(100)">Last 100</button>
+                <button class="filter-btn" onclick="loadSoilHistory(200)">Last 200</button>
+            </div>
+            
+            <div id="soilHistoryTable">
+                <div class="loading">Loading soil moisture data</div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // History Data Management
+        let allPumpEvents = [];
+        let currentFilter = 'all';
+        
+        // Load statistics
+        async function loadStats() {
+            try {
+                const response = await fetch('/api/history_stats');
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const stats = await response.json();
+                
+                // Check if response contains an error
+                if (stats.error) {
+                    console.error('API error:', stats.error);
+                    document.getElementById('statsGrid').innerHTML = '<div class="empty-state"><p>Failed to load statistics</p></div>';
+                    return;
+                }
+                
+                const statsHTML = `
+                    <div class="stat-card">
+                        <div class="icon">⚡</div>
+                        <div class="value">${stats.pump?.total_on_events || 0}</div>
+                        <div class="label">Pump ON (7d)</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="icon">⏹️</div>
+                        <div class="value">${stats.pump?.total_off_events || 0}</div>
+                        <div class="label">Pump OFF (7d)</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="icon">🎮</div>
+                        <div class="value">${stats.pump?.manual_events || 0}</div>
+                        <div class="label">Manual</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="icon">🤖</div>
+                        <div class="value">${stats.pump?.auto_events || 0}</div>
+                        <div class="label">Auto</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="icon">💧</div>
+                        <div class="value">${stats.soil?.avg_soil ? stats.soil.avg_soil.toFixed(1) : '0'}%</div>
+                        <div class="label">Avg Moisture</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="icon">📈</div>
+                        <div class="value">${stats.soil?.total_readings || 0}</div>
+                        <div class="label">Readings (7d)</div>
+                    </div>
+                `;
+                
+                document.getElementById('statsGrid').innerHTML = statsHTML;
+            } catch (error) {
+                console.error('Error loading stats:', error);
+                document.getElementById('statsGrid').innerHTML = '<div class="empty-state"><p>Failed to load statistics</p></div>';
+            }
+        }
+        
+        // Load pump events
+        async function loadPumpEvents() {
+            try {
+                const response = await fetch('/api/pump_events?limit=100');
+                allPumpEvents = await response.json();
+                displayPumpEvents(allPumpEvents);
+            } catch (error) {
+                console.error('Error loading pump events:', error);
+                document.getElementById('pumpEventsTable').innerHTML = '<div class="empty-state"><div class="icon">⚠️</div><p>Failed to load pump events</p></div>';
+            }
+        }
+        
+        function displayPumpEvents(events) {
+            if (!events || events.length === 0) {
+                document.getElementById('pumpEventsTable').innerHTML = `
+                    <div class="empty-state">
+                        <div class="icon">📭</div>
+                        <p>No pump events recorded yet</p>
+                        <small style="color: #64748b;">Pump activity will appear here once the system is operational</small>
+                    </div>
+                `;
+                return;
+            }
+            
+            const tableHTML = `
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Date & Time</th>
+                                <th>Event</th>
+                                <th>Mode</th>
+                                <th>Trigger</th>
+                                <th>Soil Moisture</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${events.map(event => `
+                                <tr>
+                                    <td class="timestamp">${formatDateTime(event.recorded_at)}</td>
+                                    <td>
+                                        <span class="status-badge ${event.event_type === 'PUMP_ON' ? 'badge-on' : 'badge-off'}">
+                                            ${event.event_type === 'PUMP_ON' ? '⚡ PUMP ON' : '⏹️ PUMP OFF'}
+                                        </span>
+                                    </td>
+                                    <td>${event.mode || 'N/A'}</td>
+                                    <td>
+                                        <span class="status-badge ${event.triggered_by === 'manual' ? 'badge-manual' : 'badge-auto'}">
+                                            ${event.triggered_by === 'manual' ? '🎮 Manual' : '🤖 Auto'}
+                                        </span>
+                                    </td>
+                                    <td>${event.soil_moisture ? event.soil_moisture.toFixed(1) + '%' : 'N/A'}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+            
+            document.getElementById('pumpEventsTable').innerHTML = tableHTML;
+        }
+        
+        function filterPumpEvents(filter) {
+            currentFilter = filter;
+            
+            // Update active button
+            const filterBtns = document.querySelectorAll('.card:nth-child(2) .filter-btn');
+            filterBtns.forEach(btn => {
+                btn.classList.remove('active');
+                if (btn.textContent.includes(filter === 'all' ? 'All' : filter === 'on' ? 'ON' : filter === 'off' ? 'OFF' : filter === 'manual' ? 'Manual' : 'Auto')) {
+                    btn.classList.add('active');
+                }
+            });
+            
+            let filtered = allPumpEvents;
+            
+            if (filter === 'on') {
+                filtered = allPumpEvents.filter(e => e.event_type === 'PUMP_ON');
+            } else if (filter === 'off') {
+                filtered = allPumpEvents.filter(e => e.event_type === 'PUMP_OFF');
+            } else if (filter === 'manual') {
+                filtered = allPumpEvents.filter(e => e.triggered_by === 'manual');
+            } else if (filter === 'auto') {
+                filtered = allPumpEvents.filter(e => e.triggered_by === 'auto');
+            }
+            
+            displayPumpEvents(filtered);
+        }
+        
+        // Load soil moisture history
+        async function loadSoilHistory(limit = 50) {
+            try {
+                document.getElementById('soilHistoryTable').innerHTML = '<div class="loading">Loading soil moisture data</div>';
+                
+                // Update active button
+                const filterBtns = document.querySelectorAll('.card:nth-child(3) .filter-btn');
+                filterBtns.forEach(btn => {
+                    btn.classList.remove('active');
+                    if (btn.textContent.includes(limit.toString())) {
+                        btn.classList.add('active');
+                    }
+                });
+                
+                const response = await fetch(`/api/soil_history?limit=${limit}`);
+                const history = await response.json();
+                
+                if (!history || history.length === 0) {
+                    document.getElementById('soilHistoryTable').innerHTML = `
+                        <div class="empty-state">
+                            <div class="icon">📭</div>
+                            <p>No soil moisture data recorded yet</p>
+                            <small style="color: #64748b;">Sensor readings will appear here once the system is operational</small>
+                        </div>
+                    `;
+                    return;
+                }
+                
+                const tableHTML = `
+                    <div class="table-wrapper">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Date & Time</th>
+                                    <th>Avg Moisture</th>
+                                    <th>Sensor 1</th>
+                                    <th>Sensor 2</th>
+                                    <th>Sensor 3</th>
+                                    <th>Sensor 4</th>
+                                    <th>Temp</th>
+                                    <th>Humidity</th>
+                                    <th>Pump</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${history.map(record => `
+                                    <tr>
+                                        <td class="timestamp">${formatDateTime(record.recorded_at)}</td>
+                                        <td>
+                                            <strong style="color: ${getMoistureColor(record.soil_avg)}">${record.soil_avg ? record.soil_avg.toFixed(1) : '0'}%</strong>
+                                            <div class="moisture-bar">
+                                                <div class="moisture-fill ${getMoistureClass(record.soil_avg)}" 
+                                                     style="width: ${record.soil_avg || 0}%"></div>
+                                            </div>
+                                        </td>
+                                        <td>${record.soil1 || 0}%</td>
+                                        <td>${record.soil2 || 0}%</td>
+                                        <td>${record.soil3 || 0}%</td>
+                                        <td>${record.soil4 || 0}%</td>
+                                        <td>${record.temperature ? record.temperature.toFixed(1) + '°C' : 'N/A'}</td>
+                                        <td>${record.humidity ? record.humidity.toFixed(1) + '%' : 'N/A'}</td>
+                                        <td>
+                                            <span class="status-badge ${record.pump_status === 'ON' ? 'badge-on' : 'badge-off'}">
+                                                ${record.pump_status || 'OFF'}
+                                            </span>
+                                        </td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+                
+                document.getElementById('soilHistoryTable').innerHTML = tableHTML;
+            } catch (error) {
+                console.error('Error loading soil history:', error);
+                document.getElementById('soilHistoryTable').innerHTML = '<div class="empty-state"><div class="icon">⚠️</div><p>Failed to load soil moisture data</p></div>';
+            }
+        }
+        
+        function formatDateTime(timestamp) {
+            if (!timestamp) return 'N/A';
+            
+            try {
+                // Handle ISO format timestamps from database
+                let date = new Date(timestamp);
+                
+                // Check if date is valid
+                if (isNaN(date.getTime())) {
+                    // Try parsing as ISO string if direct parsing fails
+                    if (typeof timestamp === 'string' && timestamp.includes('T')) {
+                        date = new Date(timestamp.replace(' ', 'T'));
+                    }
+                    if (isNaN(date.getTime())) {
+                        return 'Invalid Date';
+                    }
+                }
+                
+                // Format: "Jan 15, 2024 14:30:45" (more readable)
+                const year = date.getFullYear();
+                const month = date.toLocaleString('en-US', { month: 'short' });
+                const day = date.getDate();
+                const hours = String(date.getHours()).padStart(2, '0');
+                const minutes = String(date.getMinutes()).padStart(2, '0');
+                const seconds = String(date.getSeconds()).padStart(2, '0');
+                
+                return `${month} ${day}, ${year} ${hours}:${minutes}:${seconds}`;
+            } catch (error) {
+                console.error('Error formatting date:', error, timestamp);
+                return 'Invalid Date';
+            }
+        }
+        
+        function getMoistureColor(moisture) {
+            if (!moisture) return '#64748b';
+            if (moisture < 30) return '#ef4444';
+            if (moisture < 60) return '#f59e0b';
+            return '#4ade80';
+        }
+        
+        function getMoistureClass(moisture) {
+            if (!moisture) return 'moisture-low';
+            if (moisture < 30) return 'moisture-low';
+            if (moisture < 60) return 'moisture-medium';
+            return 'moisture-high';
+        }
+        
+        // Load all data on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            loadStats();
+            loadPumpEvents();
+            loadSoilHistory(50);
+            
+            // Restore saved interval and update button state
+            const savedInterval = parseInt(localStorage.getItem('historyUpdateInterval')) || 5;
+            currentUpdateInterval = savedInterval * 1000;
+            
+            // Update active button to match saved interval
+            document.querySelectorAll('.interval-btn').forEach(btn => {
+                btn.classList.remove('active');
+                const btnText = btn.textContent.trim();
+                const matchPattern = new RegExp(`^${savedInterval}s$`);
+                if (matchPattern.test(btnText)) {
+                    btn.classList.add('active');
+                }
+            });
+            
+            // Start real-time updates with saved interval
+            startRealTimeUpdates();
+        });
+        
+        // REAL-TIME UPDATES
+        let updateInterval;
+        let isUpdating = false;
+        // Load saved interval from localStorage, default to 5 seconds
+        let currentUpdateInterval = (parseInt(localStorage.getItem('historyUpdateInterval')) || 5) * 1000;
+        
+        function startRealTimeUpdates() {
+            // Clear existing interval if any
+            if (updateInterval) {
+                clearInterval(updateInterval);
+            }
+            
+            // Start new interval with current setting
+            updateInterval = setInterval(() => {
+                if (!isUpdating) {
+                    isUpdating = true;
+                    refreshAllData();
+                }
+            }, currentUpdateInterval);
+            
+            console.log(`✅ Real-time updates started (every ${currentUpdateInterval/1000} seconds)`);
+        }
+        
+        function stopRealTimeUpdates() {
+            if (updateInterval) {
+                clearInterval(updateInterval);
+                console.log('⏹️ Real-time updates stopped');
+            }
+        }
+        
+        function setUpdateInterval(seconds) {
+            // Store the interval in localStorage to persist across refreshes
+            localStorage.setItem('historyUpdateInterval', seconds.toString());
+            
+            currentUpdateInterval = seconds * 1000;
+            
+            // Update active button - match exact pattern like "3s", "30s" etc.
+            document.querySelectorAll('.interval-btn').forEach(btn => {
+                btn.classList.remove('active');
+                // Match the exact number followed by 's' to avoid matching "3" in "30s"
+                const btnText = btn.textContent.trim();
+                const matchPattern = new RegExp(`^${seconds}s$`);
+                if (matchPattern.test(btnText)) {
+                    btn.classList.add('active');
+                }
+            });
+            
+            // Restart updates with new interval
+            stopRealTimeUpdates();
+            startRealTimeUpdates();
+            
+            console.log(`⏱️ Update interval changed to ${seconds} seconds`);
+        }
+        
+        function manualRefresh() {
+            if (!isUpdating) {
+                isUpdating = true;
+                console.log('🔄 Manual refresh triggered');
+                
+                // Add visual feedback
+                const refreshBtn = event.target.closest('.refresh-btn');
+                const originalHTML = refreshBtn.innerHTML;
+                refreshBtn.innerHTML = '<span style="animation: spin 1s linear infinite;">🔄</span><span>Refreshing...</span>';
+                refreshBtn.style.pointerEvents = 'none';
+                
+                refreshAllData().then(() => {
+                    refreshBtn.innerHTML = originalHTML;
+                    refreshBtn.style.pointerEvents = 'auto';
+                });
+            }
+        }
+        
+        // Add spin animation
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes spin {
+                from { transform: rotate(0deg); }
+                to { transform: rotate(360deg); }
+            }
+        `;
+        document.head.appendChild(style);
+        
+        async function refreshAllData() {
+            try {
+                // Update last refresh time
+                const now = new Date();
+                const timeString = now.toLocaleString('en-US', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit'
+                });
+                document.getElementById('lastUpdate').textContent = `Last updated: ${timeString}`;
+                
+                // Refresh statistics
+                await loadStats();
+                
+                // Refresh pump events (maintain current filter)
+                const response = await fetch('/api/pump_events?limit=100');
+                allPumpEvents = await response.json();
+                
+                // Re-apply current filter
+                let filtered = allPumpEvents;
+                if (currentFilter === 'on') {
+                    filtered = allPumpEvents.filter(e => e.event_type === 'PUMP_ON');
+                } else if (currentFilter === 'off') {
+                    filtered = allPumpEvents.filter(e => e.event_type === 'PUMP_OFF');
+                } else if (currentFilter === 'manual') {
+                    filtered = allPumpEvents.filter(e => e.triggered_by === 'manual');
+                } else if (currentFilter === 'auto') {
+                    filtered = allPumpEvents.filter(e => e.triggered_by === 'auto');
+                }
+                displayPumpEvents(filtered);
+                
+                // Refresh soil history (get current limit from active button)
+                const activeSoilBtn = document.querySelector('.card:nth-child(3) .filter-btn.active');
+                let currentLimit = 50;
+                if (activeSoilBtn) {
+                    const btnText = activeSoilBtn.textContent;
+                    if (btnText.includes('100')) currentLimit = 100;
+                    else if (btnText.includes('200')) currentLimit = 200;
+                }
+                
+                const soilResponse = await fetch(`/api/soil_history?limit=${currentLimit}`);
+                const history = await soilResponse.json();
+                
+                if (history && history.length > 0) {
+                    const tableHTML = `
+                        <div class="table-wrapper">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Date & Time</th>
+                                        <th>Avg Moisture</th>
+                                        <th>Sensor 1</th>
+                                        <th>Sensor 2</th>
+                                        <th>Sensor 3</th>
+                                        <th>Sensor 4</th>
+                                        <th>Temp</th>
+                                        <th>Humidity</th>
+                                        <th>Pump</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${history.map(record => `
+                                        <tr>
+                                            <td class="timestamp">${formatDateTime(record.recorded_at)}</td>
+                                            <td>
+                                                <strong style="color: ${getMoistureColor(record.soil_avg)}">${record.soil_avg ? record.soil_avg.toFixed(1) : '0'}%</strong>
+                                                <div class="moisture-bar">
+                                                    <div class="moisture-fill ${getMoistureClass(record.soil_avg)}" 
+                                                         style="width: ${record.soil_avg || 0}%"></div>
+                                                </div>
+                                            </td>
+                                            <td>${record.soil1 || 0}%</td>
+                                            <td>${record.soil2 || 0}%</td>
+                                            <td>${record.soil3 || 0}%</td>
+                                            <td>${record.soil4 || 0}%</td>
+                                            <td>${record.temperature ? record.temperature.toFixed(1) + '°C' : 'N/A'}</td>
+                                            <td>${record.humidity ? record.humidity.toFixed(1) + '%' : 'N/A'}</td>
+                                            <td>
+                                                <span class="status-badge ${record.pump_status === 'ON' ? 'badge-on' : 'badge-off'}">
+                                                    ${record.pump_status || 'OFF'}
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    `;
+                    document.getElementById('soilHistoryTable').innerHTML = tableHTML;
+                }
+                
+                isUpdating = false;
+            } catch (error) {
+                console.error('Error refreshing data:', error);
+                isUpdating = false;
+            }
+        }
+        
+        // Stop updates when user leaves the page
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                stopRealTimeUpdates();
+            } else {
+                startRealTimeUpdates();
+            }
+        });
+    </script>
+</body>
+</html>

@@ -3,7 +3,7 @@ from flask_cors import CORS
 import sqlite3
 import hashlib
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 import firebase_admin
 from firebase_admin import credentials, db
@@ -91,7 +91,7 @@ def init_firebase():
 # Initialize Firebase on startup
 init_firebase()
 
-# ========== Database Setup (SQLite for backup) ==========
+# ========== Database Setup (SQLite for backup/history) ==========
 def init_db():
     conn = sqlite3.connect('soilsense.db')
     c = conn.cursor()
@@ -104,10 +104,12 @@ def init_db():
     )''')
     c.execute('''CREATE TABLE IF NOT EXISTS sensor_history (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
         soil_avg REAL, soil1 INTEGER, soil2 INTEGER, soil3 INTEGER, soil4 INTEGER,
         temperature REAL, humidity REAL, pump_status TEXT, mode TEXT,
         battery_voltage REAL, battery_percent REAL, current_consumed REAL,
-        recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id)
     )''')
     c.execute('''CREATE TABLE IF NOT EXISTS sensor_current (
         id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -118,10 +120,45 @@ def init_db():
     )''')
     c.execute('''CREATE TABLE IF NOT EXISTS pump_commands (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
         command_type TEXT, value TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        executed INTEGER DEFAULT 0
+        executed INTEGER DEFAULT 0,
+        FOREIGN KEY (user_id) REFERENCES users(id)
     )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS my_plants (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        plant_id TEXT NOT NULL,
+        plant_name TEXT NOT NULL,
+        plant_icon TEXT,
+        status TEXT DEFAULT 'planned',
+        planted_date TIMESTAMP,
+        growing_date TIMESTAMP,
+        harvested_date TIMESTAMP,
+        notes TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id)
+    )''')
+    
+    # Add new columns if they don't exist (for existing databases)
+    try:
+        c.execute('ALTER TABLE my_plants ADD COLUMN growing_date TIMESTAMP')
+    except sqlite3.OperationalError:
+        pass
+    try:
+        c.execute('ALTER TABLE my_plants ADD COLUMN harvested_date TIMESTAMP')
+    except sqlite3.OperationalError:
+        pass
+    try:
+        c.execute('ALTER TABLE sensor_history ADD COLUMN user_id INTEGER')
+    except sqlite3.OperationalError:
+        pass
+    try:
+        c.execute('ALTER TABLE pump_commands ADD COLUMN user_id INTEGER')
+    except sqlite3.OperationalError:
+        pass
+    
     c.execute('INSERT OR IGNORE INTO sensor_current (id, esp32_online) VALUES (1, 0)')
     conn.commit()
     conn.close()
@@ -145,7 +182,7 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
-# ========== Philippine Crops Database ==========
+# ========== Philippine Crops Database (Expanded) ==========
 def get_current_season(month):
     return "wet" if month in [6, 7, 8, 9, 10] else "dry"
 
@@ -156,167 +193,500 @@ def get_season_info(month):
     return {"season": "Dry Season", "season_type": "dry", "months": "November - May",
             "description": "Less rainfall, good for crops needing drier conditions", "icon": "☀️"}
 
+# Import the full CROPS_DATABASE from the local version
 CROPS_DATABASE = {
+    # ========== VEGETABLES ==========
     "rice": {
         "name": "Rice (Palay)", "icon": "🌾", "local_name": "Palay",
         "soil_moisture": {"min": 60, "max": 90}, "season": "wet",
         "description": "Main staple crop of the Philippines. Needs flooded paddies.",
-        "tips": "Plant at start of wet season. Requires standing water for best growth."
+        "tips": "Plant at start of wet season (June-July). Requires standing water 5-10cm deep for best growth. Transplant seedlings 20-25 days old. Space plants 20cm apart. Apply fertilizer at planting and during tillering. Harvest when 80% of grains are golden yellow. Dry harvested rice to 14% moisture before storage."
     },
     "kangkong": {
         "name": "Kangkong", "icon": "🥬", "local_name": "Kangkong",
         "soil_moisture": {"min": 60, "max": 95}, "season": "both",
         "description": "Water spinach that thrives in wet conditions. Very easy to grow.",
-        "tips": "Can grow in water or moist soil. Harvest in 21-30 days. Cut and regrow."
+        "tips": "Can grow in water or moist soil. Plant cuttings 15-20cm long directly in soil or water. Space 30cm apart. Harvest in 21-30 days by cutting stems 5cm above ground. Fertilize every 2 weeks with compost or organic fertilizer. Can be harvested multiple times - regrows quickly. Keep soil consistently moist or in standing water."
     },
     "kalabasa": {
         "name": "Squash (Kalabasa)", "icon": "🎃", "local_name": "Kalabasa",
         "soil_moisture": {"min": 50, "max": 80}, "season": "wet",
         "description": "Grows well with abundant rainfall. Sprawling vine needs space.",
-        "tips": "Rich in Vitamin A. Fruits can be stored for months after harvest."
+        "tips": "Rich in Vitamin A. Fruits can be stored for months after harvest. Plant in mounds. Provide trellis if space is limited."
     },
     "gabi": {
         "name": "Taro (Gabi)", "icon": "🥔", "local_name": "Gabi",
         "soil_moisture": {"min": 65, "max": 90}, "season": "wet",
         "description": "Root crop that loves waterlogged conditions. Staple in many Filipino dishes.",
-        "tips": "Plant in shaded, wet areas. Leaves (laing) are also edible."
+        "tips": "Plant in shaded, wet areas. Leaves (laing) are also edible. Harvest in 8-12 months."
     },
     "banana": {
         "name": "Banana (Saging)", "icon": "🍌", "local_name": "Saging",
         "soil_moisture": {"min": 55, "max": 80}, "season": "wet",
         "description": "Best planted at start of rainy season for establishment.",
-        "tips": "9-12 months to first harvest. Needs consistent moisture."
+        "tips": "Plant suckers or tissue-cultured plants at start of wet season. Space plants 3-4 meters apart. Dig hole 50cm deep and wide. Water deeply 2-3 times per week. Apply organic fertilizer every 3 months. Remove old leaves regularly. Support heavy bunches with props. First harvest in 9-12 months. After harvest, cut main stem and allow new sucker to grow."
     },
     "sitaw": {
         "name": "String Beans (Sitaw)", "icon": "🫛", "local_name": "Sitaw",
         "soil_moisture": {"min": 50, "max": 75}, "season": "both",
         "description": "Fast-growing legume that tolerates rainy conditions well.",
-        "tips": "Provide trellis for climbing. Harvest pods when young and tender."
+        "tips": "Provide trellis for climbing. Harvest pods when young and tender. 50-60 days to harvest."
     },
     "tomato": {
         "name": "Tomato (Kamatis)", "icon": "🍅", "local_name": "Kamatis",
-        "soil_moisture": {"min": 35, "max": 60}, "season": "dry",
-        "description": "Sensitive to heavy rains. Best grown in dry season.",
-        "tips": "Stake plants for support. Avoid wetting leaves to prevent disease."
+        "soil_moisture": {"min": 40, "max": 70}, "season": "dry",
+        "description": "Prefers drier season. Too much rain causes fruit cracking and diseases.",
+        "tips": "Plant October-February for best results. Start seeds indoors 6-8 weeks before transplanting. Space plants 50-60cm apart. Stake or cage plants when 30cm tall. Prune lower leaves for better airflow and disease prevention. Water at base, avoid wetting leaves. Harvest when fruits are fully colored but still firm. Apply fertilizer every 2-3 weeks during growing season."
     },
     "eggplant": {
         "name": "Eggplant (Talong)", "icon": "🍆", "local_name": "Talong",
-        "soil_moisture": {"min": 40, "max": 65}, "season": "dry",
-        "description": "Popular vegetable, thrives in warm dry weather.",
-        "tips": "Harvest every 3-4 days when fruits are glossy. Avoid waterlogging."
+        "soil_moisture": {"min": 45, "max": 70}, "season": "dry",
+        "description": "Grows well in dry season with controlled watering.",
+        "tips": "60-80 days to harvest. Harvest when skin is glossy. Plant in dry season for best results."
     },
     "ampalaya": {
         "name": "Bitter Gourd (Ampalaya)", "icon": "🥒", "local_name": "Ampalaya",
-        "soil_moisture": {"min": 40, "max": 65}, "season": "dry",
-        "description": "Highly nutritious vine crop. Prefers dry conditions.",
-        "tips": "Provide trellis for climbing. Harvest when fruits are still green."
+        "soil_moisture": {"min": 45, "max": 75}, "season": "both",
+        "description": "Year-round crop if irrigated. Very nutritious vegetable.",
+        "tips": "Needs trellis. Harvest when bright green, before turning yellow. 60-70 days to harvest."
     },
     "onion": {
         "name": "Onion (Sibuyas)", "icon": "🧅", "local_name": "Sibuyas",
-        "soil_moisture": {"min": 30, "max": 55}, "season": "dry",
-        "description": "Requires dry conditions for bulb formation.",
-        "tips": "Stop watering 2 weeks before harvest. Cure bulbs in sun."
+        "soil_moisture": {"min": 35, "max": 60}, "season": "dry",
+        "description": "Needs dry conditions for bulb development. Wet season causes rot.",
+        "tips": "Best planted November-January. Stop watering 2 weeks before harvest. 120-150 days to harvest."
     },
     "garlic": {
         "name": "Garlic (Bawang)", "icon": "🧄", "local_name": "Bawang",
-        "soil_moisture": {"min": 30, "max": 50}, "season": "dry",
-        "description": "Needs dry weather. Plant in October-November.",
-        "tips": "4-5 months to harvest. Reduce watering as plants mature."
+        "soil_moisture": {"min": 35, "max": 60}, "season": "dry",
+        "description": "Cool, dry conditions for best bulb formation.",
+        "tips": "Plant October-December. Harvest when leaves turn yellow-brown. 120-150 days to harvest."
     },
     "pechay": {
         "name": "Pechay", "icon": "🥬", "local_name": "Pechay",
-        "soil_moisture": {"min": 45, "max": 65}, "season": "dry",
-        "description": "Fast-growing leafy vegetable. Prefers cooler dry months.",
-        "tips": "Harvest in 25-30 days. Provide partial shade if too hot."
+        "soil_moisture": {"min": 50, "max": 75}, "season": "both",
+        "description": "Fast-growing leafy vegetable. Adaptable to various conditions.",
+        "tips": "Harvest in 25-40 days. Plant in succession for continuous supply. Provide partial shade in hot weather."
     },
     "corn": {
         "name": "Corn (Mais)", "icon": "🌽", "local_name": "Mais",
-        "soil_moisture": {"min": 40, "max": 70}, "season": "both",
-        "description": "Can be planted in both seasons with proper irrigation.",
-        "tips": "90-120 days to harvest. Yellow corn for feeds, white corn for food."
+        "soil_moisture": {"min": 50, "max": 75}, "season": "wet",
+        "description": "Staple crop. Sweet corn varieties popular. Needs space and full sun.",
+        "tips": "Plant at start of wet season. Space plants 30cm apart. Harvest when silks turn brown. 70-90 days to harvest."
     },
-    "monggo": {
-        "name": "Mungbean (Monggo)", "icon": "🫘", "local_name": "Monggo",
+    "mongo": {
+        "name": "Mung Beans (Mongo)", "icon": "🫘", "local_name": "Munggo",
         "soil_moisture": {"min": 35, "max": 60}, "season": "dry",
-        "description": "Short-duration legume (60-70 days). Drought tolerant.",
-        "tips": "Often planted after rice harvest. Improves soil nitrogen."
+        "description": "Short-season crop perfect for dry season. Fixes nitrogen in soil.",
+        "tips": "Ready in 60-70 days. Good rotation crop after rice. Drought-tolerant."
     },
     "sili": {
-        "name": "Hot Pepper (Sili)", "icon": "🌶️", "local_name": "Sili",
-        "soil_moisture": {"min": 40, "max": 60}, "season": "dry",
-        "description": "Includes siling labuyo, siling haba. Loves hot dry weather.",
-        "tips": "Multiple harvests over several months. Very heat tolerant."
+        "name": "Chili Pepper (Siling Labuyo)", "icon": "🌶️", "local_name": "Sili",
+        "soil_moisture": {"min": 40, "max": 70}, "season": "dry",
+        "description": "Prefers less rain. Too much moisture causes flower drop.",
+        "tips": "Harvest when fully colored. Wear gloves when handling hot varieties. Multiple harvests possible."
     },
     "okra": {
         "name": "Okra", "icon": "🌿", "local_name": "Okra",
         "soil_moisture": {"min": 40, "max": 65}, "season": "dry",
-        "description": "Heat-loving crop, drought tolerant once established.",
-        "tips": "Harvest every 2 days when pods are 3-4 inches long."
+        "description": "Drought-tolerant once established. Thrives in hot, dry weather.",
+        "tips": "Harvest pods when 7-10cm long for best tenderness. Harvest every 2 days."
     },
-    "kamote": {
+    "sweet_potato": {
         "name": "Sweet Potato (Kamote)", "icon": "🍠", "local_name": "Kamote",
-        "soil_moisture": {"min": 35, "max": 60}, "season": "both",
-        "description": "Drought-tolerant root crop. Tops and tubers are edible.",
-        "tips": "Plant cuttings at start of rainy or dry season. 3-4 months to harvest."
+        "soil_moisture": {"min": 40, "max": 70}, "season": "both",
+        "description": "Drought-tolerant once established. Leaves are also edible.",
+        "tips": "3-4 months to harvest. Cuttings can be used for next planting. Very hardy."
     },
     "papaya": {
         "name": "Papaya", "icon": "🥭", "local_name": "Papaya",
+        "soil_moisture": {"min": 50, "max": 75}, "season": "both",
+        "description": "Year-round fruiting with good care. Fast-growing tree.",
+        "tips": "Fruits in 9-11 months. Remove male plants if not needed for pollination. Well-drained soil essential."
+    },
+    "upo": {
+        "name": "Bottle Gourd (Upo)", "icon": "🥒", "local_name": "Upo",
+        "soil_moisture": {"min": 50, "max": 80}, "season": "wet",
+        "description": "Grows vigorously in wet season. Large fruits need support.",
+        "tips": "Harvest young for tender texture. Can grow very large if left. Needs trellis."
+    },
+    "patola": {
+        "name": "Luffa (Patola)", "icon": "🥒", "local_name": "Patola",
+        "soil_moisture": {"min": 50, "max": 80}, "season": "wet",
+        "description": "Thrives in humid conditions. When mature, can be dried for sponge.",
+        "tips": "Harvest young for eating (7-10 days after flowering). Needs trellis."
+    },
+    "malunggay": {
+        "name": "Moringa (Malunggay)", "icon": "🌿", "local_name": "Malunggay",
+        "soil_moisture": {"min": 30, "max": 65}, "season": "both",
+        "description": "Extremely drought-tolerant superfood. Grows in poor soil.",
+        "tips": "Cut branches regularly to promote leaf growth. Very nutritious. Easy to propagate."
+    },
+    "mustasa": {
+        "name": "Mustard (Mustasa)", "icon": "🥬", "local_name": "Mustasa",
+        "soil_moisture": {"min": 50, "max": 75}, "season": "both",
+        "description": "Fast-growing leafy green. Popular in Filipino dishes like sinigang.",
+        "tips": "Harvest in 30-45 days. Can be harvested multiple times. Plant in partial shade."
+    },
+    "repolyo": {
+        "name": "Cabbage (Repolyo)", "icon": "🥬", "local_name": "Repolyo",
+        "soil_moisture": {"min": 50, "max": 75}, "season": "dry",
+        "description": "Cool-season crop. Forms tight heads. Good for coleslaw and pickling.",
+        "tips": "Plant October-February. Needs consistent moisture. Harvest when head is firm."
+    },
+    "letsugas": {
+        "name": "Lettuce (Letsugas)", "icon": "🥬", "local_name": "Letsugas",
+        "soil_moisture": {"min": 50, "max": 75}, "season": "dry",
+        "description": "Cool-season leafy green. Perfect for salads and sandwiches.",
+        "tips": "Plant October-February. Harvest outer leaves or whole head. Prefers partial shade."
+    },
+    "radish": {
+        "name": "Radish (Labanos)", "icon": "🥕", "local_name": "Labanos",
+        "soil_moisture": {"min": 50, "max": 75}, "season": "dry",
+        "description": "Fast-growing root vegetable. Ready in 25-30 days. Crisp and spicy.",
+        "tips": "Plant October-February. Don't let soil dry out. Harvest when roots are 2-3cm."
+    },
+    "carrot": {
+        "name": "Carrot (Karot)", "icon": "🥕", "local_name": "Karot",
+        "soil_moisture": {"min": 50, "max": 75}, "season": "dry",
+        "description": "Sweet root vegetable. Rich in Vitamin A. Good for highland areas.",
+        "tips": "Plant October-February. Loose, well-drained soil. Harvest in 70-80 days."
+    },
+    "cucumber": {
+        "name": "Cucumber (Pipino)", "icon": "🥒", "local_name": "Pipino",
+        "soil_moisture": {"min": 50, "max": 80}, "season": "both",
+        "description": "Refreshing vegetable. Great for salads and pickling. Needs trellis.",
+        "tips": "Harvest when 15-20cm long. Keep soil moist. Plant in partial shade."
+    },
+    "cassava": {
+        "name": "Cassava (Kamoteng Kahoy)", "icon": "🌿", "local_name": "Kamoteng Kahoy",
+        "soil_moisture": {"min": 40, "max": 70}, "season": "both",
+        "description": "Drought-tolerant root crop. Staple food in many regions. Very hardy.",
+        "tips": "Plant stem cuttings. Harvest in 8-12 months. Leaves are also edible."
+    },
+    "ginger": {
+        "name": "Ginger (Luya)", "icon": "🫚", "local_name": "Luya",
+        "soil_moisture": {"min": 50, "max": 75}, "season": "wet",
+        "description": "Aromatic rhizome. Essential in Filipino cooking. Medicinal properties.",
+        "tips": "Plant rhizome pieces. Needs partial shade. Harvest in 8-10 months."
+    },
+    "turmeric": {
+        "name": "Turmeric (Luyang Dilaw)", "icon": "🫚", "local_name": "Luyang Dilaw",
+        "soil_moisture": {"min": 50, "max": 75}, "season": "wet",
+        "description": "Golden spice. Anti-inflammatory properties. Used in cooking and medicine.",
+        "tips": "Similar to ginger. Plant rhizomes. Partial shade. Harvest in 8-10 months."
+    },
+    "spinach": {
+        "name": "Spinach (Kulitis)", "icon": "🥬", "local_name": "Kulitis",
+        "soil_moisture": {"min": 50, "max": 75}, "season": "dry",
+        "description": "Nutritious leafy green. High in iron and vitamins. Fast-growing.",
+        "tips": "Plant October-February. Harvest in 30-40 days. Can harvest multiple times."
+    },
+    "broccoli": {
+        "name": "Broccoli", "icon": "🥦", "local_name": "Broccoli",
+        "soil_moisture": {"min": 50, "max": 75}, "season": "dry",
+        "description": "Cool-season vegetable. Rich in vitamins. Best in highland areas.",
+        "tips": "Plant October-February. Needs consistent moisture. Harvest when head is tight."
+    },
+    "cauliflower": {
+        "name": "Cauliflower", "icon": "🥦", "local_name": "Cauliflower",
+        "soil_moisture": {"min": 50, "max": 75}, "season": "dry",
+        "description": "Cool-season crop. White, purple, or orange varieties. Best in highlands.",
+        "tips": "Plant October-February. Tie leaves over head to keep white. Harvest when head is firm."
+    },
+    "bell_pepper": {
+        "name": "Bell Pepper (Siling Pula)", "icon": "🫑", "local_name": "Siling Pula",
+        "soil_moisture": {"min": 45, "max": 70}, "season": "dry",
+        "description": "Sweet pepper. Green, red, yellow varieties. Rich in Vitamin C.",
+        "tips": "Plant October-February. Stake plants. Harvest when firm and fully colored."
+    },
+    "squash_flower": {
+        "name": "Squash Flower (Bulaklak ng Kalabasa)", "icon": "🌼", "local_name": "Bulaklak ng Kalabasa",
+        "soil_moisture": {"min": 50, "max": 80}, "season": "wet",
+        "description": "Edible flowers from squash plant. Delicate and delicious. Popular in Filipino cuisine.",
+        "tips": "Harvest male flowers in morning. Use fresh. Can be stuffed or fried."
+    },
+    
+    # ========== FRUITS ==========
+    "mango": {
+        "name": "Mango (Mangga)", "icon": "🥭", "local_name": "Mangga",
+        "soil_moisture": {"min": 40, "max": 70}, "season": "dry",
+        "description": "Best fruiting in dry season. Philippine national fruit. Excellent for backyard growing.",
+        "tips": "Prune after harvest. Best varieties: Carabao, Indian. Fruits March-June. Water regularly when young."
+    },
+    "calamansi": {
+        "name": "Calamansi (Philippine Lime)", "icon": "🍋", "local_name": "Kalamansi",
+        "soil_moisture": {"min": 50, "max": 75}, "season": "both",
+        "description": "Year-round citrus fruit. Very popular in Filipino cuisine. Easy to grow.",
+        "tips": "Fruits 2-3 years from planting. Prune regularly. Good in pots. Fertilize every 3 months."
+    },
+    "guava": {
+        "name": "Guava (Bayabas)", "icon": "🍐", "local_name": "Bayabas",
+        "soil_moisture": {"min": 45, "max": 75}, "season": "both",
+        "description": "Hardy fruit tree. Bears fruit twice a year. Very nutritious and high in Vitamin C.",
+        "tips": "Fruits in 2-3 years. Prune to maintain shape. Pink and white varieties. Can grow from seeds or cuttings."
+    },
+    "pineapple": {
+        "name": "Pineapple (Pinya)", "icon": "🍍", "local_name": "Pinya",
+        "soil_moisture": {"min": 35, "max": 65}, "season": "dry",
+        "description": "Drought-tolerant once established. Sweet varieties grow well in Philippines.",
+        "tips": "Plant crown or suckers. Fruits in 18-24 months. Queen and MD2 are popular varieties."
+    },
+    "dragon_fruit": {
+        "name": "Dragon Fruit (Pitaya)", "icon": "🐉", "local_name": "Dragon Fruit",
+        "soil_moisture": {"min": 40, "max": 70}, "season": "dry",
+        "description": "Cactus fruit gaining popularity. Grows well in warm climate. Beautiful flowers bloom at night.",
+        "tips": "Needs support/trellis. Fruits 1-2 years from cuttings. White and red flesh varieties available."
+    },
+    "coconut": {
+        "name": "Coconut (Niyog)", "icon": "🥥", "local_name": "Niyog",
+        "soil_moisture": {"min": 50, "max": 80}, "season": "both",
+        "description": "Tree of life. Every part is useful. Fruits year-round. Iconic Philippine tree.",
+        "tips": "Plant in full sun. Fruits in 5-7 years. Needs space. Very drought-tolerant once established."
+    },
+    "jackfruit": {
+        "name": "Jackfruit (Langka)", "icon": "🍈", "local_name": "Langka",
+        "soil_moisture": {"min": 50, "max": 75}, "season": "wet",
+        "description": "Largest tree fruit. Sweet and aromatic. Used in many Filipino dishes.",
+        "tips": "Plant in wet season. Fruits in 3-4 years. Needs space. Harvest when fruit sounds hollow."
+    },
+    "durian": {
+        "name": "Durian", "icon": "🌰", "local_name": "Durian",
+        "soil_moisture": {"min": 50, "max": 75}, "season": "wet",
+        "description": "King of fruits. Strong aroma. Creamy texture. Best in Mindanao region.",
+        "tips": "Needs tropical climate. Fruits in 5-7 years. Plant in wet season. Needs space."
+    },
+    "rambutan": {
+        "name": "Rambutan", "icon": "🍒", "local_name": "Rambutan",
+        "soil_moisture": {"min": 50, "max": 75}, "season": "wet",
+        "description": "Hairy red fruit. Sweet and juicy. Similar to litchi. Popular in Mindanao.",
+        "tips": "Plant in wet season. Fruits in 3-4 years. Needs consistent moisture. Harvest when red."
+    },
+    "lanzones": {
+        "name": "Lanzones", "icon": "🍇", "local_name": "Lanzones",
+        "soil_moisture": {"min": 55, "max": 80}, "season": "wet",
+        "description": "Sweet, translucent fruit. Grows in clusters. Best in Mindanao and some Luzon areas.",
+        "tips": "Needs high humidity. Fruits in 5-6 years. Plant in wet season. Harvest when yellow."
+    },
+    "starfruit": {
+        "name": "Starfruit (Balimbing)", "icon": "⭐", "local_name": "Balimbing",
+        "soil_moisture": {"min": 50, "max": 75}, "season": "both",
+        "description": "Star-shaped fruit. Sweet and tangy. Rich in Vitamin C. Easy to grow.",
+        "tips": "Fruits in 2-3 years. Can grow in pots. Harvest when yellow. Prune regularly."
+    },
+    "soursop": {
+        "name": "Soursop (Guyabano)", "icon": "🍈", "local_name": "Guyabano",
+        "soil_moisture": {"min": 50, "max": 75}, "season": "both",
+        "description": "Creamy white flesh. Sweet-tart flavor. Medicinal properties. Popular fruit tree.",
+        "tips": "Fruits in 3-4 years. Needs space. Harvest when slightly soft. Rich in Vitamin C."
+    },
+    "santol": {
+        "name": "Santol", "icon": "🍈", "local_name": "Santol",
+        "soil_moisture": {"min": 50, "max": 75}, "season": "wet",
+        "description": "Tart fruit. Used in jams and preserves. Fast-growing tree. Very hardy.",
+        "tips": "Fruits in 3-4 years. Very drought-tolerant. Harvest when yellow. Can be eaten fresh or processed."
+    },
+    "atis": {
+        "name": "Sugar Apple (Atis)", "icon": "🍈", "local_name": "Atis",
+        "soil_moisture": {"min": 50, "max": 75}, "season": "dry",
+        "description": "Sweet, creamy fruit. Segmented flesh. Very popular. Easy to grow.",
+        "tips": "Fruits in 2-3 years. Can grow in pots. Harvest when fruit separates easily. Rich in Vitamin C."
+    },
+    "chico": {
+        "name": "Sapodilla (Chico)", "icon": "🍈", "local_name": "Chico",
+        "soil_moisture": {"min": 45, "max": 70}, "season": "dry",
+        "description": "Sweet, brown fruit. Caramel-like flavor. Very popular. Drought-tolerant.",
+        "tips": "Fruits in 3-4 years. Very hardy. Harvest when soft. Can grow in various soil types."
+    },
+    "duhat": {
+        "name": "Java Plum (Duhat)", "icon": "🍇", "local_name": "Duhat",
+        "soil_moisture": {"min": 50, "max": 75}, "season": "wet",
+        "description": "Small purple fruit. Astringent when unripe, sweet when ripe. Very hardy tree.",
+        "tips": "Fruits in 3-4 years. Very drought-tolerant. Harvest when dark purple. Used in jams."
+    },
+    "macopa": {
+        "name": "Rose Apple (Macopa)", "icon": "🍎", "local_name": "Macopa",
+        "soil_moisture": {"min": 50, "max": 75}, "season": "both",
+        "description": "Bell-shaped fruit. Crisp and refreshing. Pink or white varieties. Easy to grow.",
+        "tips": "Fruits in 2-3 years. Very hardy. Harvest when firm. Can grow in pots."
+    },
+    "watermelon": {
+        "name": "Watermelon (Pakwan)", "icon": "🍉", "local_name": "Pakwan",
+        "soil_moisture": {"min": 50, "max": 75}, "season": "dry",
+        "description": "Refreshing summer fruit. High water content. Perfect for hot weather.",
+        "tips": "Plant October-February. Needs space. Harvest when bottom turns yellow. 70-90 days to harvest."
+    },
+    "cantaloupe": {
+        "name": "Cantaloupe (Melon)", "icon": "🍈", "local_name": "Melon",
+        "soil_moisture": {"min": 50, "max": 75}, "season": "dry",
+        "description": "Sweet, aromatic melon. Rich in Vitamin A. Perfect for hot, dry season.",
+        "tips": "Plant October-February. Needs space. Harvest when stem separates easily. 80-90 days."
+    },
+    
+    # ========== FLOWERS ==========
+    "sampaguita": {
+        "name": "Sampaguita (Philippine Jasmine)", "icon": "🌼", "local_name": "Sampaguita",
+        "soil_moisture": {"min": 50, "max": 75}, "season": "both",
+        "description": "National flower of the Philippines. Fragrant white flowers bloom year-round.",
+        "tips": "Well-drained soil. Prune regularly. Flowers best in morning sun. Can be grown in pots."
+    },
+    "santan": {
+        "name": "Santan (Ixora)", "icon": "🌺", "local_name": "Santan",
         "soil_moisture": {"min": 45, "max": 70}, "season": "both",
-        "description": "Fast-growing fruit tree. Cannot tolerate waterlogging.",
-        "tips": "Well-drained soil essential. Bears fruit in 9-11 months."
-    }
+        "description": "Popular hedge plant with clusters of red, orange, yellow, or pink flowers.",
+        "tips": "Full sun to partial shade. Blooms year-round. Trim after flowering for bushier growth."
+    },
+    "gumamela": {
+        "name": "Gumamela (Hibiscus)", "icon": "🌺", "local_name": "Gumamela",
+        "soil_moisture": {"min": 50, "max": 75}, "season": "both",
+        "description": "Large showy flowers in red, pink, yellow, or white. Very easy to grow.",
+        "tips": "Full sun. Deadhead spent flowers. Can propagate easily from cuttings."
+    },
+    "rosal": {
+        "name": "Rosal (Rose)", "icon": "🌹", "local_name": "Rosal",
+        "soil_moisture": {"min": 45, "max": 70}, "season": "dry",
+        "description": "Classic garden flower. Grows well in Philippine highlands and cooler dry season.",
+        "tips": "Plant in well-drained soil. Prune in dry season. Morning watering prevents fungal diseases."
+    },
+    "marigold": {
+        "name": "Marigold", "icon": "🌼", "local_name": "Marigold",
+        "soil_moisture": {"min": 40, "max": 65}, "season": "dry",
+        "description": "Bright orange or yellow flowers. Natural pest repellent for gardens.",
+        "tips": "Plant October-February. Pinch tops to encourage bushy growth. Companion plant for vegetables."
+    },
+    "sunflower": {
+        "name": "Sunflower", "icon": "🌻", "local_name": "Sunflower",
+        "soil_moisture": {"min": 40, "max": 70}, "season": "dry",
+        "description": "Tall, cheerful flowers that follow the sun. Grows 4-8 feet tall.",
+        "tips": "Plant in dry season (Nov-Feb). Needs full sun. Support tall stems. Seeds edible when mature."
+    },
+    "zinnia": {
+        "name": "Zinnia", "icon": "🌸", "local_name": "Zinnia",
+        "soil_moisture": {"min": 40, "max": 65}, "season": "dry",
+        "description": "Colorful, long-lasting blooms. Perfect for cut flowers. Heat-tolerant.",
+        "tips": "Easy to grow from seeds. Deadhead for continuous blooms. Attracts butterflies."
+    },
+    "bougainvillea": {
+        "name": "Bougainvillea", "icon": "🌺", "local_name": "Bougainvillea",
+        "soil_moisture": {"min": 30, "max": 60}, "season": "dry",
+        "description": "Vibrant pink, red, orange, or white bracts. Very drought-tolerant once established.",
+        "tips": "Dry season triggers best blooms. Minimal watering. Prune after flowering. Great for trellises."
+    },
+    "adelfa": {
+        "name": "Adelfa (Oleander)", "icon": "🌸", "local_name": "Adelfa",
+        "soil_moisture": {"min": 35, "max": 65}, "season": "both",
+        "description": "Hardy shrub with fragrant pink, white, or red flowers. Very heat and drought tolerant.",
+        "tips": "Full sun. Low maintenance. WARNING: All parts toxic if ingested. Keep away from children/pets."
+    },
+    "kalachuchi": {
+        "name": "Kalachuchi (Plumeria)", "icon": "🌺", "local_name": "Kalachuchi",
+        "soil_moisture": {"min": 35, "max": 60}, "season": "dry",
+        "description": "Fragrant flowers in white, pink, yellow, or red. Blooms best in dry season.",
+        "tips": "Very drought-tolerant. Blooms when leaves drop in dry season. Easy to propagate from cuttings."
+    },
+    "waling_waling": {
+        "name": "Waling-Waling (Orchid)", "icon": "🌸", "local_name": "Waling-Waling",
+        "soil_moisture": {"min": 55, "max": 75}, "season": "both",
+        "description": "Queen of Philippine orchids. Large, fragrant flowers. Grows in humid conditions.",
+        "tips": "Needs high humidity. Partial shade. Use orchid mix, not soil. Mist regularly."
+    },
+    "vanda": {
+        "name": "Vanda (Orchid)", "icon": "🌸", "local_name": "Vanda",
+        "soil_moisture": {"min": 50, "max": 75}, "season": "both",
+        "description": "Popular orchid with stunning blooms. Grows well hanging with exposed roots.",
+        "tips": "High humidity. Daily watering in dry season. No potting medium needed. Loves morning sun."
+    },
+    "caladium": {
+        "name": "Caladium", "icon": "🌿", "local_name": "Caladium",
+        "soil_moisture": {"min": 55, "max": 80}, "season": "wet",
+        "description": "Colorful heart-shaped leaves in pink, red, white patterns. Foliage plant.",
+        "tips": "Shade to partial sun. Loves humidity. Plant bulbs at start of wet season. Beautiful in pots."
+    },
+    "anthurium": {
+        "name": "Anthurium", "icon": "🌺", "local_name": "Anthurium",
+        "soil_moisture": {"min": 55, "max": 75}, "season": "both",
+        "description": "Glossy heart-shaped 'flowers' (actually bracts) in red, pink, or white. Long-lasting.",
+        "tips": "Bright indirect light. High humidity. Well-draining soil. Popular as indoor plant."
+    },
+    "cosmos": {
+        "name": "Cosmos", "icon": "🌸", "local_name": "Cosmos",
+        "soil_moisture": {"min": 35, "max": 60}, "season": "dry",
+        "description": "Delicate daisy-like flowers in pink, white, or purple. Grows 2-4 feet tall.",
+        "tips": "Very easy to grow from seed. Plant Nov-Jan. Self-seeds readily. Attracts bees and butterflies."
+    },
+    "dama_de_noche": {
+        "name": "Night-Blooming Jasmine (Dama de Noche)", "icon": "🌙", "local_name": "Dama de Noche",
+        "soil_moisture": {"min": 50, "max": 75}, "season": "both",
+        "description": "Fragrant white flowers that bloom at night. Intoxicating scent fills the air.",
+        "tips": "Plant in partial shade. Blooms year-round. Prune regularly. Perfect for evening gardens."
+    },
 }
 
-def get_crop_suggestions(soil_avg, month):
-    """Get crop suggestions based on soil moisture and Philippine season"""
-    suggestions = []
-    current_season = get_current_season(month)
+def get_crop_suggestions(soil_moisture, current_month):
+    season = get_current_season(current_month)
+    all_suggestions = []
     
     for crop_id, crop in CROPS_DATABASE.items():
-        score = 0
-        reasons = []
-        
+        crop_min = crop["soil_moisture"]["min"]
+        crop_max = crop["soil_moisture"]["max"]
         crop_season = crop["season"]
+        
+        # Calculate match score (0-100)
+        season_match = crop_season == "both" or crop_season == season
+        
+        # Moisture score based on distance from optimal range
+        if crop_min <= soil_moisture <= crop_max:
+            moisture_score = 100  # Perfect match
+        else:
+            # Calculate how far outside the range
+            if soil_moisture < crop_min:
+                distance = crop_min - soil_moisture
+            else:
+                distance = soil_moisture - crop_max
+            # Decrease score based on distance (max penalty at 30% away)
+            moisture_score = max(0, 100 - (distance * 2))
+        
+        # Season score
+        if season_match:
+            season_score = 100
+        elif crop_season == "both":
+            season_score = 80
+        else:
+            season_score = 40  # Wrong season
+        
+        # Overall score (weighted average)
+        overall_score = int((moisture_score * 0.6) + (season_score * 0.4))
+        
+        # Build reasons list
+        reasons = []
+        if season_match:
+            reasons.append("✓ Perfect season")
+        if crop_min <= soil_moisture <= crop_max:
+            reasons.append("✓ Ideal moisture")
         if crop_season == "both":
-            score += 30
-            reasons.append("✓ Year-round crop")
-        elif crop_season == current_season:
-            score += 40
-            if current_season == "wet":
-                reasons.append("✓ Best in wet season")
-            else:
-                reasons.append("✓ Best in dry season")
-        else:
-            continue
+            reasons.append("✓ Year-round")
+        if overall_score >= 80:
+            reasons.append("✓ Highly recommended")
         
-        if soil_avg is not None:
-            if crop["soil_moisture"]["min"] <= soil_avg <= crop["soil_moisture"]["max"]:
-                score += 40
-                reasons.append("✓ Ideal soil moisture")
-            elif abs(soil_avg - crop["soil_moisture"]["min"]) <= 15 or abs(soil_avg - crop["soil_moisture"]["max"]) <= 15:
-                score += 20
-                reasons.append("Acceptable soil moisture")
-            else:
-                score -= 10
-        else:
-            score += 20
+        # Format crop data for frontend
+        crop_data = {
+            "id": crop_id,
+            "name": crop["name"],
+            "icon": crop["icon"],
+            "local_name": crop["local_name"],
+            "season_type": crop["season"],
+            "description": crop["description"],
+            "tips": crop["tips"],
+            "ideal_soil": f"{crop_min}-{crop_max}%",
+            "score": overall_score,
+            "reasons": reasons if reasons else ["Consider with care"]
+        }
         
-        if score >= 30:
-            suggestions.append({
-                "id": crop_id,
-                "name": crop["name"],
-                "local_name": crop["local_name"],
-                "icon": crop["icon"],
-                "score": min(score, 100),
-                "reasons": reasons,
-                "description": crop["description"],
-                "tips": crop["tips"],
-                "ideal_soil": f"{crop['soil_moisture']['min']}-{crop['soil_moisture']['max']}%",
-                "season": crop["season"]
-            })
+        all_suggestions.append(crop_data)
     
-    suggestions.sort(key=lambda x: x["score"], reverse=True)
-    return suggestions[:8]
+    # Sort by score (highest first) and return top 15
+    all_suggestions.sort(key=lambda x: x["score"], reverse=True)
+    return all_suggestions[:15]
 
 # ========== Debug/Test Endpoints ==========
 @app.route('/api/test/firebase')
@@ -344,38 +714,6 @@ def test_firebase():
     
     return jsonify(result)
 
-@app.route('/api/test/push')
-def test_push():
-    """Test endpoint to push sample data to Firebase"""
-    if not FIREBASE_ENABLED:
-        return jsonify({"error": "Firebase not enabled", "firebase_enabled": False})
-    
-    try:
-        timestamp = datetime.now().isoformat()
-        test_data = {
-            'soil_percent': [50, 55, 60, 65],
-            'soil_status': 'NORMAL',
-            'pump_status': 'OFF',
-            'mode': 'AUTO',
-            'temperature': 28.5,
-            'humidity': 70.0,
-            'battery_voltage': 12.4,
-            'battery_percent': 90,
-            'current_consumed': 0.35,
-            'power': {"bus_voltage": 12.4, "current": 0.35},
-            'timestamp': timestamp
-        }
-        
-        sensor_ref.set(test_data)
-        
-        return jsonify({
-            "success": True,
-            "message": "Test data pushed to Firebase",
-            "data": test_data
-        })
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)})
-
 # ========== Auth Routes ==========
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -391,7 +729,7 @@ def login():
         if user and user['password'] == hash_password(password):
             session['user_id'] = user['id']
             session['username'] = user['username']
-            return redirect(url_for('index'))
+            return redirect(url_for('dashboard'))
         
         return render_template('login.html', error='Invalid username or password')
     return render_template('login.html')
@@ -487,17 +825,232 @@ def update_account():
 
 # ========== Dashboard Routes ==========
 @app.route('/')
-@login_required
 def index():
+    if 'user_id' in session:
+        return redirect(url_for('dashboard'))
+    return redirect(url_for('login'))
+
+@app.route('/dashboard')
+@login_required
+def dashboard():
     return render_template('index.html', username=session.get('username'))
 
 @app.route('/crops')
 @login_required
-def crops_page():
-    return render_template('crops.html', username=session.get('username'))
+def crops():
+    current_month = datetime.now().month
+    season_info = get_season_info(current_month)
+    
+    conn = get_db()
+    stats = conn.execute('''SELECT AVG(soil_avg) as avg_soil FROM sensor_history 
+        WHERE strftime('%Y-%m', recorded_at) = ?''', (datetime.now().strftime('%Y-%m'),)).fetchone()
+    
+    if stats and stats['avg_soil']:
+        soil_avg = stats['avg_soil']
+    else:
+        # Try to get from Firebase
+        if FIREBASE_ENABLED and sensor_ref:
+            try:
+                data = sensor_ref.get()
+                if data:
+                    soil_percent = data.get('soil_percent', [50,50,50,50])
+                    soil_avg = sum(soil_percent) / len(soil_percent)
+                else:
+                    soil_avg = 50
+            except:
+                soil_avg = 50
+        else:
+            current = conn.execute('SELECT soil_percent FROM sensor_current WHERE id = 1').fetchone()
+            if current and current['soil_percent']:
+                soil_percent = json.loads(current['soil_percent'])
+                soil_avg = sum(soil_percent) / len(soil_percent)
+            else:
+                soil_avg = 50
+    
+    conn.close()
+    
+    suggestions = get_crop_suggestions(soil_avg, current_month)
+    
+    return render_template('crops.html', 
+                         username=session.get('username'),
+                         month_name=datetime.now().strftime('%B'),
+                         season=season_info,
+                         soil_moisture=round(soil_avg, 1),
+                         suggestions=suggestions)
+
+@app.route('/my-plants')
+@login_required
+def my_plants():
+    conn = get_db()
+    plants = conn.execute('''SELECT * FROM my_plants 
+                            WHERE user_id = ? 
+                            ORDER BY created_at DESC''', 
+                         (session.get('user_id'),)).fetchall()
+    conn.close()
+    
+    return render_template('my_plants.html', 
+                         username=session.get('username'),
+                         plants=[dict(p) for p in plants])
+
+@app.route('/history')
+@login_required
+def history():
+    """History page showing pump events and soil moisture history"""
+    return render_template('history.html', username=session.get('username'))
+
+@app.route('/settings')
+@login_required
+def settings():
+    return render_template('settings.html', username=session.get('username'))
+
+# ========== My Plants API ==========
+@app.route('/api/my_plants/add', methods=['POST'])
+@login_required
+def add_my_plant():
+    try:
+        data = request.json
+        conn = get_db()
+        
+        # Check if already added
+        existing = conn.execute('''SELECT id FROM my_plants 
+                                  WHERE user_id = ? AND plant_id = ?''',
+                               (session.get('user_id'), data['plant_id'])).fetchone()
+        
+        if existing:
+            conn.close()
+            return jsonify({"success": False, "error": "Plant already in your list"})
+        
+        conn.execute('''INSERT INTO my_plants 
+                       (user_id, plant_id, plant_name, plant_icon, notes) 
+                       VALUES (?, ?, ?, ?, ?)''',
+                    (session.get('user_id'), 
+                     data['plant_id'],
+                     data['plant_name'],
+                     data.get('plant_icon', '🌱'),
+                     data.get('notes', '')))
+        conn.commit()
+        result = conn.execute('SELECT last_insert_rowid()').fetchone()
+        plant_id = result[0] if result else None
+        conn.close()
+        
+        return jsonify({"success": True, "plant_id": plant_id})
+    except Exception as e:
+        if 'conn' in locals():
+            conn.close()
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route('/api/my_plants/remove/<int:plant_id>', methods=['DELETE'])
+@login_required
+def remove_my_plant(plant_id):
+    try:
+        conn = get_db()
+        conn.execute('''DELETE FROM my_plants 
+                       WHERE id = ? AND user_id = ?''',
+                    (plant_id, session.get('user_id')))
+        conn.commit()
+        conn.close()
+        
+        return jsonify({"success": True})
+    except Exception as e:
+        if 'conn' in locals():
+            conn.close()
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route('/api/my_plants/update/<int:plant_id>', methods=['POST'])
+@login_required
+def update_my_plant(plant_id):
+    try:
+        data = request.json
+        conn = get_db()
+        
+        updates = []
+        params = []
+        
+        if 'status' in data:
+            updates.append('status = ?')
+            params.append(data['status'])
+        
+        if 'planted_date' in data:
+            updates.append('planted_date = ?')
+            params.append(data['planted_date'])
+        
+        if 'growing_date' in data:
+            updates.append('growing_date = ?')
+            params.append(data['growing_date'])
+        
+        if 'harvested_date' in data:
+            updates.append('harvested_date = ?')
+            params.append(data['harvested_date'])
+        
+        # Auto-update dates based on status changes (only if date not manually provided)
+        if 'status' in data:
+            current_status = data['status']
+            now = datetime.now().isoformat()
+            
+            # Get current plant data
+            existing_plant = conn.execute('SELECT planted_date, growing_date, harvested_date FROM my_plants WHERE id = ?', (plant_id,)).fetchone()
+            
+            # Check if we already added these fields to updates
+            has_planted_update = any('planted_date' in u for u in updates)
+            has_growing_update = any('growing_date' in u for u in updates)
+            has_harvested_update = any('harvested_date' in u for u in updates)
+            
+            # If status changed to planted and no planted_date provided, set it
+            if current_status == 'planted' and not has_planted_update:
+                if not existing_plant or not existing_plant['planted_date']:
+                    updates.append('planted_date = ?')
+                    params.append(now)
+            
+            # If status changed to growing and no growing_date provided, set it
+            if current_status == 'growing' and not has_growing_update:
+                if not existing_plant or not existing_plant['growing_date']:
+                    updates.append('growing_date = ?')
+                    params.append(now)
+            
+            # If status changed to harvested and no harvested_date provided, set it
+            if current_status == 'harvested' and not has_harvested_update:
+                if not existing_plant or not existing_plant['harvested_date']:
+                    updates.append('harvested_date = ?')
+                    params.append(now)
+        
+        if 'notes' in data:
+            updates.append('notes = ?')
+            params.append(data['notes'])
+        
+        if updates:
+            params.extend([plant_id, session.get('user_id')])
+            conn.execute(f'''UPDATE my_plants 
+                           SET {', '.join(updates)}
+                           WHERE id = ? AND user_id = ?''', params)
+            conn.commit()
+        
+        conn.close()
+        return jsonify({"success": True})
+    except Exception as e:
+        if 'conn' in locals():
+            conn.close()
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route('/api/my_plants/list')
+@login_required
+def get_my_plants():
+    try:
+        conn = get_db()
+        plants = conn.execute('''SELECT * FROM my_plants 
+                                WHERE user_id = ? 
+                                ORDER BY created_at DESC''',
+                             (session.get('user_id'),)).fetchall()
+        conn.close()
+        
+        return jsonify([dict(p) for p in plants])
+    except Exception as e:
+        if 'conn' in locals():
+            conn.close()
+        return jsonify({"error": str(e)}), 500
 
 # ========== ESP32 API with Firebase ==========
 @app.route('/api/esp32/push', methods=['POST'])
+@app.route('/esp32/push_data', methods=['POST'])
 def esp32_push_data():
     """ESP32 pushes data to Firebase and SQLite"""
     try:
@@ -542,6 +1095,27 @@ def esp32_push_data():
              data.get('battery_voltage'), data.get('current_consumed'),
              data.get('battery_percent'), json.dumps(data.get('power', {})), timestamp))
         
+        # Add to history
+        soil_percent = data.get('soil_percent', [0,0,0,0])
+        soil_avg = sum(soil_percent) / len(soil_percent) if soil_percent else 0
+        
+        conn.execute('''INSERT INTO sensor_history 
+            (soil_avg, soil1, soil2, soil3, soil4, temperature, humidity, 
+             pump_status, mode, battery_voltage, battery_percent, current_consumed)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+            (soil_avg, 
+             soil_percent[0] if len(soil_percent) > 0 else 0,
+             soil_percent[1] if len(soil_percent) > 1 else 0,
+             soil_percent[2] if len(soil_percent) > 2 else 0,
+             soil_percent[3] if len(soil_percent) > 3 else 0,
+             data.get('temperature'),
+             data.get('humidity'),
+             data.get('pump_status', 'OFF'),
+             data.get('mode', 'AUTO'),
+             data.get('battery_voltage'),
+             data.get('battery_percent'),
+             data.get('current_consumed')))
+        
         # Check for pending commands
         response_data = {"success": True}
         
@@ -575,6 +1149,47 @@ def esp32_push_data():
         traceback.print_exc()
         return jsonify({"success": False, "error": str(e)}), 500
 
+@app.route('/esp32/get_command', methods=['GET'])
+def esp32_get_command():
+    """ESP32 polls for commands (fallback method)"""
+    try:
+        if FIREBASE_ENABLED and commands_ref:
+            try:
+                cmd_data = commands_ref.get()
+                if cmd_data and not cmd_data.get('executed', True):
+                    commands_ref.update({'executed': True})
+                    return jsonify({
+                        "has_command": True,
+                        "type": cmd_data.get('type'),
+                        "value": cmd_data.get('value')
+                    })
+            except Exception as e:
+                print(f"⚠️  Firebase command read error: {e}")
+        
+        # Fallback to SQLite
+        conn = get_db()
+        command = conn.execute(
+            'SELECT * FROM pump_commands WHERE executed = 0 ORDER BY created_at DESC LIMIT 1'
+        ).fetchone()
+        
+        if command:
+            conn.execute('UPDATE pump_commands SET executed = 1 WHERE id = ?', (command['id'],))
+            conn.commit()
+            conn.close()
+            
+            return jsonify({
+                "has_command": True,
+                "type": command['command_type'],
+                "value": command['value']
+            })
+        
+        conn.close()
+        return jsonify({"has_command": False})
+    
+    except Exception as e:
+        print(f"❌ Error in esp32_get_command: {e}")
+        return jsonify({"has_command": False, "error": str(e)}), 500
+
 # ========== Dashboard API ==========
 @app.route('/api/data')
 @login_required
@@ -586,6 +1201,16 @@ def get_data():
                 # Get from Firebase
                 data = sensor_ref.get()
                 if data:
+                    # Check ESP32 online status
+                    esp32_online = False
+                    if data.get('timestamp'):
+                        try:
+                            last_update = datetime.fromisoformat(data['timestamp'])
+                            time_diff = (datetime.now() - last_update).total_seconds()
+                            esp32_online = time_diff < 30
+                        except:
+                            pass
+                    
                     return jsonify({
                         "soil_percent": data.get('soil_percent', [0,0,0,0]),
                         "soil_status": data.get('soil_status', 'UNKNOWN'),
@@ -597,7 +1222,7 @@ def get_data():
                         "battery_percent": data.get('battery_percent'),
                         "current_consumed": data.get('current_consumed'),
                         "power": data.get('power', {}),
-                        "esp32_online": True,
+                        "esp32_online": esp32_online,
                         "last_update": data.get('timestamp'),
                         "source": "firebase"
                     })
@@ -607,6 +1232,22 @@ def get_data():
         # Fallback to SQLite
         conn = get_db()
         data = conn.execute('SELECT * FROM sensor_current WHERE id = 1').fetchone()
+        
+        # Check if ESP32 is still online (data received within last 30 seconds)
+        esp32_online = False
+        if data and data['last_update']:
+            try:
+                last_update = datetime.fromisoformat(data['last_update'])
+                time_diff = (datetime.now() - last_update).total_seconds()
+                esp32_online = bool(data['esp32_online']) and time_diff < 30
+                
+                # Update online status if timeout
+                if not esp32_online and data['esp32_online']:
+                    conn.execute('UPDATE sensor_current SET esp32_online = 0 WHERE id = 1')
+                    conn.commit()
+            except (ValueError, AttributeError, TypeError):
+                esp32_online = bool(data.get('esp32_online', False))
+        
         conn.close()
         
         if data:
@@ -621,7 +1262,7 @@ def get_data():
                 "battery_percent": data['battery_percent'],
                 "current_consumed": data['current_consumed'],
                 "power": json.loads(data['power_data']) if data['power_data'] else {},
-                "esp32_online": bool(data['esp32_online']),
+                "esp32_online": esp32_online,
                 "last_update": data['last_update'],
                 "source": "sqlite"
             })
@@ -645,8 +1286,8 @@ def set_mode(mode):
             })
         else:
             conn = get_db()
-            conn.execute('INSERT INTO pump_commands (command_type, value) VALUES (?, ?)', 
-                        ('mode', mode.upper()))
+            conn.execute('INSERT INTO pump_commands (command_type, value, user_id) VALUES (?, ?, ?)', 
+                        ('mode', mode.upper(), session.get('user_id')))
             conn.commit()
             conn.close()
         
@@ -668,8 +1309,8 @@ def set_pump(state):
             })
         else:
             conn = get_db()
-            conn.execute('INSERT INTO pump_commands (command_type, value) VALUES (?, ?)', 
-                        ('pump', state.upper()))
+            conn.execute('INSERT INTO pump_commands (command_type, value, user_id) VALUES (?, ?, ?)', 
+                        ('pump', state.upper(), session.get('user_id')))
             conn.commit()
             conn.close()
         
@@ -683,10 +1324,11 @@ def save_reading():
     data = request.json
     conn = get_db()
     conn.execute('''INSERT INTO sensor_history 
-        (soil_avg, soil1, soil2, soil3, soil4, temperature, humidity, 
+        (user_id, soil_avg, soil1, soil2, soil3, soil4, temperature, humidity, 
          pump_status, mode, battery_voltage, battery_percent, current_consumed)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-        (data.get('soil_avg'), data.get('soil1'), data.get('soil2'), data.get('soil3'),
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+        (session.get('user_id'),
+         data.get('soil_avg'), data.get('soil1'), data.get('soil2'), data.get('soil3'),
          data.get('soil4'), data.get('temperature'), data.get('humidity'),
          data.get('pump_status'), data.get('mode'), data.get('battery_voltage'),
          data.get('battery_percent'), data.get('current_consumed')))
@@ -698,9 +1340,131 @@ def save_reading():
 @login_required
 def get_history():
     conn = get_db()
-    history = conn.execute('SELECT * FROM sensor_history ORDER BY recorded_at DESC LIMIT 100').fetchall()
+    history = conn.execute('''SELECT * FROM sensor_history 
+                             ORDER BY recorded_at DESC LIMIT 100''').fetchall()
     conn.close()
     return jsonify([dict(row) for row in history])
+
+@app.route('/api/history_stats')
+@login_required
+def get_history_stats():
+    """Get statistics for history page"""
+    try:
+        conn = get_db()
+        
+        # Get pump events from last 7 days
+        seven_days_ago = datetime.now() - timedelta(days=7)
+        
+        # Get all history records from last 7 days ordered by time
+        history = conn.execute('''SELECT 
+            recorded_at, pump_status, mode, soil_avg
+            FROM sensor_history 
+            WHERE recorded_at >= ?
+            ORDER BY recorded_at ASC''', 
+            (seven_days_ago.isoformat(),)).fetchall()
+        
+        # Count actual pump state changes (events)
+        pump_on_count = 0
+        pump_off_count = 0
+        manual_count = 0
+        auto_count = 0
+        prev_status = None
+        
+        for record in history:
+            current_status = record['pump_status']
+            # Count state changes (actual events) - only if status is not None
+            if current_status and prev_status != current_status:
+                if current_status == 'ON':
+                    pump_on_count += 1
+                elif current_status == 'OFF':
+                    pump_off_count += 1
+                
+                # Count manual vs auto based on mode when state changes
+                mode = record['mode']
+                if mode == 'MANUAL':
+                    manual_count += 1
+                elif mode == 'AUTO':
+                    auto_count += 1
+            
+            if current_status:
+                prev_status = current_status
+        
+        # Soil moisture stats
+        soil_stats = conn.execute('''SELECT 
+            AVG(soil_avg) as avg_soil, COUNT(*) as total_readings
+            FROM sensor_history WHERE recorded_at >= ?''', 
+            (seven_days_ago.isoformat(),)).fetchone()
+        
+        conn.close()
+        
+        return jsonify({
+            "pump": {
+                "total_on_events": pump_on_count,
+                "total_off_events": pump_off_count,
+                "manual_events": manual_count,
+                "auto_events": auto_count
+            },
+            "soil": {
+                "avg_soil": float(soil_stats['avg_soil']) if soil_stats and soil_stats['avg_soil'] is not None else 0,
+                "total_readings": soil_stats['total_readings'] if soil_stats else 0
+            }
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/pump_events')
+@login_required
+def get_pump_events():
+    """Get pump events from history"""
+    try:
+        limit = request.args.get('limit', 100, type=int)
+        conn = get_db()
+        
+        # Get history records where pump status changed
+        history = conn.execute('''SELECT 
+            recorded_at, pump_status, mode, soil_avg, temperature, humidity
+            FROM sensor_history 
+            WHERE pump_status IS NOT NULL
+            ORDER BY recorded_at DESC 
+            LIMIT ?''', (limit,)).fetchall()
+        
+        # Convert to pump events format
+        events = []
+        prev_status = None
+        for record in history:
+            current_status = record['pump_status']
+            if prev_status != current_status:
+                events.append({
+                    "recorded_at": record['recorded_at'],
+                    "event_type": "PUMP_ON" if current_status == "ON" else "PUMP_OFF",
+                    "mode": record['mode'] or "AUTO",
+                    "triggered_by": "manual" if record['mode'] == "MANUAL" else "auto",
+                    "soil_moisture": record['soil_avg']
+                })
+            prev_status = current_status
+        
+        conn.close()
+        return jsonify(events)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/soil_history')
+@login_required
+def get_soil_history():
+    """Get soil moisture history"""
+    try:
+        limit = request.args.get('limit', 50, type=int)
+        conn = get_db()
+        history = conn.execute('''SELECT 
+            recorded_at, soil_avg, soil1, soil2, soil3, soil4, 
+            temperature, humidity, pump_status
+            FROM sensor_history 
+            ORDER BY recorded_at DESC 
+            LIMIT ?''', (limit,)).fetchall()
+        conn.close()
+        return jsonify([dict(row) for row in history])
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/monthly_stats')
 @login_required
@@ -759,4 +1523,11 @@ def get_crop_suggestions_api():
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
+    print("="*60)
+    print("🌱 SoilSense Online Server Starting...")
+    print("="*60)
+    print(f"🔥 Firebase: {'ENABLED ✅' if FIREBASE_ENABLED else 'DISABLED ⚠️'}")
+    print("💾 SQLite: Used for backup and history")
+    print(f"🌐 Server: Running on port {port}")
+    print("="*60)
     app.run(host='0.0.0.0', port=port, debug=False)

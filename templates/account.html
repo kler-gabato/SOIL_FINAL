@@ -20,25 +20,28 @@
             margin-bottom: 30px;
         }
         header h1 {
-            font-size: 2rem;
+            font-size: 2.2rem;
             color: #4ade80;
-            margin-bottom: 5px;
+            margin-bottom: 8px;
         }
-        header p { color: #94a3b8; }
+        header p { color: #94a3b8; font-size: 0.95rem; }
         
         .nav-links {
             display: flex;
             justify-content: center;
-            gap: 15px;
+            gap: 12px;
             margin-bottom: 30px;
+            flex-wrap: wrap;
         }
         .nav-links a {
             color: #94a3b8;
             text-decoration: none;
-            padding: 8px 16px;
+            padding: 8px 14px;
             border-radius: 20px;
             background: rgba(255,255,255,0.05);
             transition: all 0.3s;
+            font-size: 0.9rem;
+            white-space: nowrap;
         }
         .nav-links a:hover {
             background: rgba(255,255,255,0.1);
@@ -47,21 +50,23 @@
         .nav-links a.active {
             background: #4ade80;
             color: #000;
+            font-weight: 600;
         }
         
         .card {
             background: rgba(255,255,255,0.05);
             border-radius: 16px;
-            padding: 30px;
+            padding: 28px;
             border: 1px solid rgba(255,255,255,0.1);
             margin-bottom: 20px;
         }
         .card h2 {
             color: #4ade80;
-            font-size: 1.2rem;
-            margin-bottom: 20px;
-            padding-bottom: 10px;
+            font-size: 1.15rem;
+            margin-bottom: 22px;
+            padding-bottom: 12px;
             border-bottom: 1px solid rgba(255,255,255,0.1);
+            font-weight: 600;
         }
         
         .info-row {
@@ -91,12 +96,12 @@
         }
         .form-group input {
             width: 100%;
-            padding: 12px 14px;
+            padding: 14px 16px;
             border: 1px solid rgba(255,255,255,0.1);
             border-radius: 8px;
             background: rgba(0,0,0,0.3);
             color: #fff;
-            font-size: 1rem;
+            font-size: 0.95rem;
             transition: border-color 0.3s;
         }
         .form-group input:focus {
@@ -129,8 +134,8 @@
             padding: 14px;
             border: none;
             border-radius: 8px;
-            font-size: 1rem;
-            font-weight: bold;
+            font-size: 0.95rem;
+            font-weight: 600;
             cursor: pointer;
             transition: all 0.3s;
             margin-top: 10px;
@@ -190,6 +195,23 @@
             color: #94a3b8;
             font-size: 0.9rem;
         }
+        
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            header h1 { font-size: 1.8rem; }
+            .nav-links { gap: 10px; }
+            .nav-links a { padding: 6px 12px; font-size: 0.85rem; }
+            .card { padding: 24px; }
+        }
+        
+        @media (max-width: 480px) {
+            body { padding: 15px; }
+            header h1 { font-size: 1.6rem; }
+            .nav-links { gap: 8px; }
+            .nav-links a { padding: 6px 10px; font-size: 0.8rem; }
+            .card { padding: 20px; }
+            .container { max-width: 100%; }
+        }
     </style>
 </head>
 <body>
@@ -200,7 +222,10 @@
         </header>
         
         <nav class="nav-links">
-            <a href="/">🏠 Dashboard</a>
+            <a href="/dashboard">🏠 Dashboard</a>
+            <a href="/crops">🌾 Crops</a>
+            <a href="/history">📊 History</a>
+            <a href="/my-plants">🪴 My Plants</a>
             <a href="/account" class="active">👤 Account</a>
             <a href="/logout">🚪 Logout</a>
         </nav>

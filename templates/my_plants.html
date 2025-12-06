@@ -1,0 +1,1056 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Plants - SoilSense</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+            color: #fff;
+            padding: 20px;
+        }
+        .container { max-width: 1200px; margin: 0 auto; }
+        
+        header { text-align: center; margin-bottom: 30px; }
+        header h1 { font-size: 2.2rem; color: #4ade80; margin-bottom: 8px; }
+        header p { color: #94a3b8; font-size: 0.95rem; }
+        
+        .nav-links {
+            display: flex;
+            justify-content: center;
+            gap: 12px;
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+        }
+        .nav-links a {
+            color: #94a3b8;
+            text-decoration: none;
+            padding: 8px 14px;
+            border-radius: 20px;
+            background: rgba(255,255,255,0.05);
+            transition: all 0.3s;
+            font-size: 0.9rem;
+            white-space: nowrap;
+        }
+        .nav-links a:hover { background: rgba(255,255,255,0.1); color: #fff; }
+        .nav-links a.active { background: #4ade80; color: #000; font-weight: 600; }
+        
+        .header-actions {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 25px;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+        
+        .btn {
+            padding: 12px 20px;
+            border: none;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-decoration: none;
+            display: inline-block;
+        }
+        .btn-primary {
+            background: #4ade80;
+            color: #000;
+        }
+        .btn-primary:hover {
+            background: #22c55e;
+            transform: translateY(-2px);
+        }
+        .btn-secondary {
+            background: rgba(255,255,255,0.1);
+            color: #fff;
+        }
+        .btn-secondary:hover {
+            background: rgba(255,255,255,0.2);
+        }
+        .btn-danger {
+            background: rgba(239, 68, 68, 0.3);
+            color: #fca5a5;
+        }
+        .btn-danger:hover {
+            background: rgba(239, 68, 68, 0.5);
+        }
+        
+        .filter-tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 25px;
+            flex-wrap: wrap;
+        }
+        .tab {
+            padding: 10px 18px;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 20px;
+            color: #94a3b8;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-size: 0.85rem;
+            font-weight: 500;
+        }
+        .tab:hover { background: rgba(255,255,255,0.1); }
+        .tab.active {
+            background: #4ade80;
+            color: #000;
+            border-color: #4ade80;
+        }
+        
+        .plants-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .plant-card {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 16px;
+            padding: 22px;
+            transition: all 0.3s;
+        }
+        .plant-card:hover {
+            background: rgba(255,255,255,0.08);
+            transform: translateY(-5px);
+        }
+        
+        .plant-header {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+        .plant-icon {
+            font-size: 2.2rem;
+            background: rgba(0,0,0,0.3);
+            width: 56px;
+            height: 56px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 12px;
+            flex-shrink: 0;
+        }
+        .plant-info h3 {
+            color: #fff;
+            font-size: 1.05rem;
+            margin-bottom: 6px;
+            font-weight: 600;
+        }
+        .plant-date {
+            color: #64748b;
+            font-size: 0.8rem;
+        }
+        
+        .plant-status {
+            display: inline-block;
+            padding: 6px 14px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            margin-bottom: 14px;
+            font-weight: 600;
+            letter-spacing: 0.3px;
+        }
+        .status-planned {
+            background: rgba(59, 130, 246, 0.3);
+            color: #93c5fd;
+        }
+        .status-planted {
+            background: rgba(74, 222, 128, 0.3);
+            color: #86efac;
+        }
+        .status-growing {
+            background: rgba(234, 179, 8, 0.3);
+            color: #fde047;
+        }
+        .status-harvested {
+            background: rgba(168, 85, 247, 0.3);
+            color: #c4b5fd;
+        }
+        
+        .plant-notes {
+            background: rgba(0,0,0,0.2);
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 12px;
+            color: #cbd5e1;
+            font-size: 0.9rem;
+            line-height: 1.5;
+            min-height: 60px;
+        }
+        .plant-notes:empty::before {
+            content: "No notes yet...";
+            color: #64748b;
+            font-style: italic;
+        }
+        
+        /* Growth Tracker */
+        .growth-tracker {
+            background: rgba(0,0,0,0.2);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 14px;
+        }
+        
+        .tracker-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+        
+        .tracker-title {
+            color: #4ade80;
+            font-size: 0.85rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        
+        .tracker-stats {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-bottom: 12px;
+        }
+        
+        .tracker-stat {
+            flex: 1;
+            min-width: 85px;
+            text-align: center;
+            padding: 10px 8px;
+            background: rgba(255,255,255,0.05);
+            border-radius: 8px;
+        }
+        
+        .tracker-stat .label {
+            font-size: 0.7rem;
+            color: #64748b;
+            margin-bottom: 6px;
+            font-weight: 500;
+        }
+        
+        .tracker-stat .value {
+            font-size: 1.1rem;
+            font-weight: bold;
+            color: #4ade80;
+            line-height: 1.2;
+        }
+        
+        .tracker-stat .value.highlight {
+            color: #fde047;
+        }
+        
+        /* Timeline Progress Bar */
+        .timeline-progress {
+            position: relative;
+            height: 8px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 4px;
+            margin-bottom: 12px;
+            overflow: hidden;
+        }
+        
+        .timeline-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #3b82f6, #4ade80, #fde047, #a855f7);
+            border-radius: 4px;
+            transition: width 0.5s ease;
+        }
+        
+        .timeline-markers {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 8px;
+            position: relative;
+        }
+        
+        .timeline-marker {
+            flex: 1;
+            text-align: center;
+            font-size: 0.7rem;
+            color: #64748b;
+            position: relative;
+        }
+        
+        .timeline-marker.active {
+            color: #4ade80;
+            font-weight: 600;
+        }
+        
+        .timeline-marker.completed {
+            color: #86efac;
+        }
+        
+        .timeline-marker::before {
+            content: '';
+            position: absolute;
+            top: -12px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: rgba(255,255,255,0.2);
+            border: 2px solid rgba(255,255,255,0.3);
+        }
+        
+        .timeline-marker.active::before {
+            background: #4ade80;
+            border-color: #4ade80;
+            box-shadow: 0 0 8px rgba(74, 222, 128, 0.5);
+        }
+        
+        .timeline-marker.completed::before {
+            background: #86efac;
+            border-color: #86efac;
+        }
+        
+        .tracker-dates {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 8px;
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        .tracker-date-item {
+            font-size: 0.75rem;
+        }
+        
+        .tracker-date-item .label {
+            color: #64748b;
+            margin-bottom: 2px;
+        }
+        
+        .tracker-date-item .date {
+            color: #cbd5e1;
+            font-weight: 500;
+        }
+        
+        .tracker-date-item .days {
+            color: #4ade80;
+            font-size: 0.7rem;
+            margin-top: 2px;
+        }
+        
+        .estimated-harvest {
+            background: rgba(234, 179, 8, 0.1);
+            border-left: 3px solid #fde047;
+            padding: 8px 12px;
+            border-radius: 6px;
+            margin-top: 8px;
+            font-size: 0.75rem;
+        }
+        
+        .estimated-harvest .label {
+            color: #fde047;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+        
+        .estimated-harvest .date {
+            color: #cbd5e1;
+        }
+        
+        .plant-actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .action-btn {
+            padding: 8px 14px;
+            background: rgba(255,255,255,0.1);
+            border: none;
+            border-radius: 6px;
+            color: #94a3b8;
+            font-size: 0.8rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .action-btn:hover {
+            background: rgba(255,255,255,0.2);
+            color: #fff;
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 80px 20px;
+            color: #94a3b8;
+        }
+        .empty-state .icon {
+            font-size: 4rem;
+            margin-bottom: 20px;
+        }
+        .empty-state h3 {
+            color: #fff;
+            margin-bottom: 10px;
+        }
+        
+        /* Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.7);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal.active { display: flex; }
+        
+        .modal-content {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 16px;
+            padding: 30px;
+            max-width: 500px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        .modal-header h2 {
+            color: #4ade80;
+            font-size: 1.3rem;
+        }
+        .close-btn {
+            background: none;
+            border: none;
+            color: #94a3b8;
+            font-size: 1.5rem;
+            cursor: pointer;
+            padding: 0;
+            width: 30px;
+            height: 30px;
+        }
+        .close-btn:hover { color: #fff; }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        .form-group label {
+            display: block;
+            color: #94a3b8;
+            margin-bottom: 8px;
+            font-size: 0.9rem;
+        }
+        .form-group select,
+        .form-group input,
+        .form-group textarea {
+            width: 100%;
+            padding: 12px;
+            background: rgba(0,0,0,0.3);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 8px;
+            color: #fff;
+            font-size: 0.95rem;
+        }
+        .form-group select:focus,
+        .form-group input:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: #4ade80;
+        }
+        .form-group textarea {
+            resize: vertical;
+            min-height: 80px;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+        .stat-card {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 12px;
+            padding: 15px;
+            text-align: center;
+        }
+        .stat-value {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #4ade80;
+            margin-bottom: 5px;
+        }
+        .stat-label {
+            color: #94a3b8;
+            font-size: 0.85rem;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 60px 20px;
+            color: #94a3b8;
+        }
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid rgba(255,255,255,0.1);
+            border-top-color: #4ade80;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            header h1 { font-size: 1.8rem; }
+            .nav-links { gap: 10px; }
+            .nav-links a { padding: 6px 12px; font-size: 0.85rem; }
+            .plants-grid { grid-template-columns: 1fr; }
+            .plant-card { padding: 18px; }
+            .header-actions { flex-direction: column; align-items: stretch; }
+            .filter-tabs { justify-content: center; }
+            .stats-grid { grid-template-columns: repeat(2, 1fr); }
+        }
+        
+        @media (max-width: 480px) {
+            body { padding: 15px; }
+            header h1 { font-size: 1.6rem; }
+            .nav-links { gap: 8px; }
+            .nav-links a { padding: 6px 10px; font-size: 0.8rem; }
+            .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+            .stat-card { padding: 12px; }
+            .stat-value { font-size: 1.6rem; }
+            .plant-icon { width: 50px; height: 50px; font-size: 2rem; }
+            .tracker-stats { gap: 8px; }
+            .tracker-stat { min-width: 70px; padding: 8px 6px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🌱 SoilSense</h1>
+            <p>My Garden Plants</p>
+        </header>
+        
+        <nav class="nav-links">
+            <a href="/">🏠 Dashboard</a>
+            <a href="/crops">🌾 Crops</a>
+            <a href="/history">📊 History</a>
+            <a href="/my-plants" class="active">📋 My Plants</a>
+            <a href="/account">👤 Account</a>
+            <a href="/logout">🚪 Logout</a>
+        </nav>
+        
+        <!-- Stats -->
+        <div class="stats-grid" id="statsGrid">
+            <div class="stat-card">
+                <div class="stat-value" id="totalCount">0</div>
+                <div class="stat-label">Total Plants</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="plannedCount">0</div>
+                <div class="stat-label">Planned</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="plantedCount">0</div>
+                <div class="stat-label">Planted</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="growingCount">0</div>
+                <div class="stat-label">Growing</div>
+            </div>
+        </div>
+        
+        <!-- Header Actions -->
+        <div class="header-actions">
+            <div class="filter-tabs">
+                <div class="tab active" data-filter="all">All</div>
+                <div class="tab" data-filter="planned">Planned</div>
+                <div class="tab" data-filter="planted">Planted</div>
+                <div class="tab" data-filter="growing">Growing</div>
+                <div class="tab" data-filter="harvested">Harvested</div>
+            </div>
+            <a href="/crops" class="btn btn-primary">+ Add Plants</a>
+        </div>
+        
+        <!-- Plants Grid -->
+        <div class="plants-grid" id="plantsGrid">
+            <div class="loading" style="grid-column: 1/-1;">
+                <div class="spinner"></div>
+                <p>Loading your plants...</p>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Edit Modal -->
+    <div class="modal" id="editModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Edit Plant</h2>
+                <button class="close-btn" onclick="closeModal()">&times;</button>
+            </div>
+            
+            <form id="editForm">
+                <input type="hidden" id="editPlantId">
+                
+                <div class="form-group">
+                    <label>Plant Name</label>
+                    <input type="text" id="editPlantName" readonly>
+                </div>
+                
+                <div class="form-group">
+                    <label>Status</label>
+                    <select id="editStatus">
+                        <option value="planned">Planned</option>
+                        <option value="planted">Planted</option>
+                        <option value="growing">Growing</option>
+                        <option value="harvested">Harvested</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label>Planted Date</label>
+                    <input type="date" id="editPlantedDate">
+                    <small style="color: #64748b; font-size: 0.8rem;">When you planted this (auto-set when status changes to "Planted")</small>
+                </div>
+                
+                <div class="form-group">
+                    <label>Growing Date</label>
+                    <input type="date" id="editGrowingDate">
+                    <small style="color: #64748b; font-size: 0.8rem;">When it started growing (auto-set when status changes to "Growing")</small>
+                </div>
+                
+                <div class="form-group">
+                    <label>Harvested Date</label>
+                    <input type="date" id="editHarvestedDate">
+                    <small style="color: #64748b; font-size: 0.8rem;">When you harvested (auto-set when status changes to "Harvested")</small>
+                </div>
+                
+                <div class="form-group">
+                    <label>Notes</label>
+                    <textarea id="editNotes" placeholder="Add notes about this plant..."></textarea>
+                </div>
+                
+                <button type="submit" class="btn btn-primary" style="width: 100%;">Save Changes</button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        let currentFilter = 'all';
+        let plantsData = [];
+        
+        // Load plants
+        async function loadPlants() {
+            try {
+                const response = await fetch('/api/my_plants/list');
+                const plants = await response.json();
+                plantsData = plants;
+                renderPlants();
+            } catch (error) {
+                console.error('Error loading plants:', error);
+                document.getElementById('plantsGrid').innerHTML = `
+                    <div class="empty-state" style="grid-column: 1/-1;">
+                        <div class="icon">⚠️</div>
+                        <h3>Error Loading Plants</h3>
+                        <p>Please refresh the page to try again.</p>
+                    </div>
+                `;
+            }
+        }
+        
+        function renderPlants() {
+            const grid = document.getElementById('plantsGrid');
+            
+            if (plantsData.length === 0) {
+                grid.innerHTML = `
+                    <div class="empty-state" style="grid-column: 1/-1;">
+                        <div class="icon">🌱</div>
+                        <h3>No Plants Yet</h3>
+                        <p>Start planning your garden by adding plants from the Crop Suggestions page!</p>
+                        <br>
+                        <a href="/crops" class="btn btn-primary">Browse Plants</a>
+                    </div>
+                `;
+                updateStats();
+                return;
+            }
+            
+            let html = '';
+            plantsData.forEach(plant => {
+                const notes = plant.notes && plant.notes.trim() ? plant.notes : '';
+                const createdDate = formatDate(plant.created_at);
+                const tracker = generateTracker(plant);
+                
+                html += `
+                    <div class="plant-card" data-status="${plant.status}" data-id="${plant.id}">
+                        <div class="plant-header">
+                            <div class="plant-icon">${plant.plant_icon || '🌱'}</div>
+                            <div class="plant-info">
+                                <h3>${plant.plant_name}</h3>
+                                <div class="plant-date">Added ${createdDate}</div>
+                            </div>
+                        </div>
+                        
+                        <span class="plant-status status-${plant.status}">
+                            ${capitalizeFirst(plant.status)}
+                        </span>
+                        
+                        ${tracker}
+                        
+                        <div class="plant-notes">${notes || '<span style="color:#64748b;font-style:italic;">No notes yet...</span>'}</div>
+                        
+                        <div class="plant-actions">
+                            <button class="action-btn" onclick='editPlant(${JSON.stringify(plant)})'>
+                                ✏️ Edit
+                            </button>
+                            <button class="action-btn" onclick="updateStatus(${plant.id}, '${plant.status}')">
+                                🔄 Status
+                            </button>
+                            <button class="action-btn" onclick="deletePlant(${plant.id}, '${plant.plant_name}')">
+                                🗑️ Remove
+                            </button>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            grid.innerHTML = html;
+            filterPlants();
+            updateStats();
+        }
+        
+        function formatDate(dateString) {
+            if (!dateString) return 'Recently';
+            try {
+                const date = new Date(dateString);
+                const now = new Date();
+                const diffTime = Math.abs(now - date);
+                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                
+                if (diffDays === 0) return 'Today';
+                if (diffDays === 1) return 'Yesterday';
+                if (diffDays < 7) return `${diffDays} days ago`;
+                if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`;
+                return date.toLocaleDateString();
+            } catch {
+                return 'Recently';
+            }
+        }
+        
+        function capitalizeFirst(str) {
+            return str.charAt(0).toUpperCase() + str.slice(1);
+        }
+        
+        function calculateDays(dateString) {
+            if (!dateString) return null;
+            try {
+                const date = new Date(dateString);
+                const now = new Date();
+                const diffTime = Math.abs(now - date);
+                const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+                return diffDays;
+            } catch {
+                return null;
+            }
+        }
+        
+        function formatDateOnly(dateString) {
+            if (!dateString) return 'Not set';
+            try {
+                const date = new Date(dateString);
+                return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+            } catch {
+                return 'Not set';
+            }
+        }
+        
+        function generateTracker(plant) {
+            const status = plant.status || 'planned';
+            const plantedDate = plant.planted_date;
+            const growingDate = plant.growing_date;
+            const harvestedDate = plant.harvested_date;
+            
+            // Calculate days
+            const daysPlanted = plantedDate ? calculateDays(plantedDate) : null;
+            const daysGrowing = growingDate ? calculateDays(growingDate) : null;
+            const daysHarvested = harvestedDate ? calculateDays(harvestedDate) : null;
+            
+            // Calculate progress percentage
+            let progress = 0;
+            if (status === 'planned') progress = 0;
+            else if (status === 'planted') progress = 25;
+            else if (status === 'growing') progress = 60;
+            else if (status === 'harvested') progress = 100;
+            
+            // Timeline markers
+            const plannedActive = status === 'planned' ? 'active' : '';
+            const plannedCompleted = ['planted', 'growing', 'harvested'].includes(status) ? 'completed' : '';
+            const plantedActive = status === 'planted' ? 'active' : '';
+            const plantedCompleted = ['growing', 'harvested'].includes(status) ? 'completed' : '';
+            const growingActive = status === 'growing' ? 'active' : '';
+            const growingCompleted = status === 'harvested' ? 'completed' : '';
+            const harvestedActive = status === 'harvested' ? 'active' : '';
+            
+            // Estimated harvest (assuming 60-90 days from planting for most crops)
+            let estimatedHarvest = '';
+            if (plantedDate && status !== 'harvested') {
+                try {
+                    const planted = new Date(plantedDate);
+                    const estimated = new Date(planted);
+                    estimated.setDate(estimated.getDate() + 75); // Average 75 days
+                    estimatedHarvest = `
+                        <div class="estimated-harvest">
+                            <div class="label">📅 Estimated Harvest</div>
+                            <div class="date">${estimated.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</div>
+                            <div class="days" style="margin-top: 4px;">~${75 - (daysPlanted || 0)} days remaining</div>
+                        </div>
+                    `;
+                } catch {}
+            }
+            
+            return `
+                <div class="growth-tracker">
+                    <div class="tracker-header">
+                        <div class="tracker-title">
+                            <span>📊 Growth Tracker</span>
+                        </div>
+                    </div>
+                    
+                    <div class="tracker-stats">
+                        ${plantedDate ? `
+                            <div class="tracker-stat">
+                                <div class="label">Days Planted</div>
+                                <div class="value ${daysPlanted > 30 ? 'highlight' : ''}">${daysPlanted || 0}</div>
+                            </div>
+                        ` : ''}
+                        ${growingDate ? `
+                            <div class="tracker-stat">
+                                <div class="label">Days Growing</div>
+                                <div class="value ${daysGrowing > 30 ? 'highlight' : ''}">${daysGrowing || 0}</div>
+                            </div>
+                        ` : ''}
+                        ${harvestedDate ? `
+                            <div class="tracker-stat">
+                                <div class="label">Harvested</div>
+                                <div class="value">${daysHarvested || 0} days ago</div>
+                            </div>
+                        ` : ''}
+                    </div>
+                    
+                    <div class="timeline-progress">
+                        <div class="timeline-fill" style="width: ${progress}%"></div>
+                    </div>
+                    
+                    <div class="timeline-markers">
+                        <div class="timeline-marker ${plannedActive} ${plannedCompleted}">
+                            Planned
+                        </div>
+                        <div class="timeline-marker ${plantedActive} ${plantedCompleted}">
+                            Planted
+                        </div>
+                        <div class="timeline-marker ${growingActive} ${growingCompleted}">
+                            Growing
+                        </div>
+                        <div class="timeline-marker ${harvestedActive}">
+                            Harvested
+                        </div>
+                    </div>
+                    
+                    <div class="tracker-dates">
+                        ${plantedDate ? `
+                            <div class="tracker-date-item">
+                                <div class="label">🌱 Planted</div>
+                                <div class="date">${formatDateOnly(plantedDate)}</div>
+                                ${daysPlanted !== null ? `<div class="days">${daysPlanted} days ago</div>` : ''}
+                            </div>
+                        ` : ''}
+                        ${growingDate ? `
+                            <div class="tracker-date-item">
+                                <div class="label">🌿 Growing</div>
+                                <div class="date">${formatDateOnly(growingDate)}</div>
+                                ${daysGrowing !== null ? `<div class="days">${daysGrowing} days ago</div>` : ''}
+                            </div>
+                        ` : ''}
+                        ${harvestedDate ? `
+                            <div class="tracker-date-item">
+                                <div class="label">🎉 Harvested</div>
+                                <div class="date">${formatDateOnly(harvestedDate)}</div>
+                                ${daysHarvested !== null ? `<div class="days">${daysHarvested} days ago</div>` : ''}
+                            </div>
+                        ` : ''}
+                    </div>
+                    
+                    ${estimatedHarvest}
+                </div>
+            `;
+        }
+        
+        // Filter tabs
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+                currentFilter = tab.dataset.filter;
+                filterPlants();
+            });
+        });
+        
+        function filterPlants() {
+            const cards = document.querySelectorAll('.plant-card');
+            cards.forEach(card => {
+                if (currentFilter === 'all' || card.dataset.status === currentFilter) {
+                    card.style.display = 'block';
+                } else {
+                    card.style.display = 'none';
+                }
+            });
+        }
+        
+        function updateStats() {
+            const total = plantsData.length;
+            const planned = plantsData.filter(p => p.status === 'planned').length;
+            const planted = plantsData.filter(p => p.status === 'planted').length;
+            const growing = plantsData.filter(p => p.status === 'growing').length;
+            
+            document.getElementById('totalCount').textContent = total;
+            document.getElementById('plannedCount').textContent = planned;
+            document.getElementById('plantedCount').textContent = planted;
+            document.getElementById('growingCount').textContent = growing;
+        }
+        
+        function editPlant(plant) {
+            document.getElementById('editPlantId').value = plant.id;
+            document.getElementById('editPlantName').value = plant.plant_name;
+            document.getElementById('editStatus').value = plant.status;
+            document.getElementById('editNotes').value = plant.notes || '';
+            
+            // Format dates for input fields (YYYY-MM-DD)
+            const formatDateForInput = (dateString) => {
+                if (!dateString) return '';
+                try {
+                    const date = new Date(dateString);
+                    return date.toISOString().split('T')[0];
+                } catch {
+                    return '';
+                }
+            };
+            
+            document.getElementById('editPlantedDate').value = formatDateForInput(plant.planted_date);
+            document.getElementById('editGrowingDate').value = formatDateForInput(plant.growing_date);
+            document.getElementById('editHarvestedDate').value = formatDateForInput(plant.harvested_date);
+            document.getElementById('editModal').classList.add('active');
+        }
+        
+        function closeModal() {
+            document.getElementById('editModal').classList.remove('active');
+        }
+        
+        document.getElementById('editForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const id = document.getElementById('editPlantId').value;
+            const data = {
+                status: document.getElementById('editStatus').value,
+                notes: document.getElementById('editNotes').value,
+                planted_date: document.getElementById('editPlantedDate').value || null,
+                growing_date: document.getElementById('editGrowingDate').value || null,
+                harvested_date: document.getElementById('editHarvestedDate').value || null
+            };
+            
+            try {
+                const response = await fetch(`/api/my_plants/update/${id}`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(data)
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    closeModal();
+                    await loadPlants();
+                } else {
+                    alert('Error updating plant: ' + (result.error || 'Unknown error'));
+                }
+            } catch (error) {
+                alert('Error: ' + error.message);
+            }
+        });
+        
+        async function updateStatus(id, currentStatus) {
+            const statuses = ['planned', 'planted', 'growing', 'harvested'];
+            const currentIndex = statuses.indexOf(currentStatus);
+            const nextStatus = statuses[(currentIndex + 1) % statuses.length];
+            
+            try {
+                const response = await fetch(`/api/my_plants/update/${id}`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ status: nextStatus })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    await loadPlants();
+                } else {
+                    alert('Error updating status: ' + (result.error || 'Unknown error'));
+                }
+            } catch (error) {
+                alert('Error: ' + error.message);
+            }
+        }
+        
+        async function deletePlant(id, plantName) {
+            if (!confirm(`Are you sure you want to remove "${plantName}"?`)) return;
+            
+            try {
+                const response = await fetch(`/api/my_plants/remove/${id}`, {
+                    method: 'DELETE'
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    await loadPlants();
+                } else {
+                    alert('Error removing plant: ' + (result.error || 'Unknown error'));
+                }
+            } catch (error) {
+                alert('Error: ' + error.message);
+            }
+        }
+        
+        // Close modal on background click
+        document.getElementById('editModal').addEventListener('click', (e) => {
+            if (e.target.id === 'editModal') {
+                closeModal();
+            }
+        });
+        
+        // Load plants on page load
+        loadPlants();
+    </script>
+</body>
+</html>
