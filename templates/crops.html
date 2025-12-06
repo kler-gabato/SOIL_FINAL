@@ -221,7 +221,7 @@
         .crop-tips {
             background: rgba(74, 222, 128, 0.1);
             border-left: 4px solid #4ade80;
-            padding: 18px;
+            padding: 16px;
             border-radius: 0 10px 10px 0;
             margin-bottom: 20px;
         }
@@ -229,15 +229,39 @@
             color: #4ade80; 
             font-size: 0.85rem; 
             font-weight: 600; 
-            margin-bottom: 12px;
+            margin-bottom: 10px;
             display: flex;
             align-items: center;
             gap: 6px;
         }
+        .quick-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 10px;
+            margin-bottom: 12px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        .quick-stat {
+            background: rgba(0,0,0,0.2);
+            padding: 8px 10px;
+            border-radius: 6px;
+            text-align: center;
+        }
+        .quick-stat .stat-label {
+            font-size: 0.7rem;
+            color: #94a3b8;
+            margin-bottom: 4px;
+        }
+        .quick-stat .stat-value {
+            font-size: 0.9rem;
+            color: #4ade80;
+            font-weight: 600;
+        }
         .crop-tips .tip-text { 
             color: #cbd5e1; 
-            font-size: 0.95rem; 
-            line-height: 1.8; 
+            font-size: 0.88rem; 
+            line-height: 1.6; 
         }
         
         .crop-soil {
@@ -655,6 +679,137 @@
             updateSlider();
         }
         
+        function parseTips(tips) {
+            const stats = {
+                harvestDays: null,
+                spacing: null,
+                plantingTime: null,
+                waterFreq: null
+            };
+            
+            // Extract harvest days - multiple patterns
+            // Pattern 1: "50-60 days to harvest"
+            let harvestMatch = tips.match(/(\d+)[-\s](\d+)\s*(days?|months?|weeks?)\s*(?:to\s*)?harvest/i);
+            // Pattern 2: "Harvest in 21-30 days"
+            if (!harvestMatch) harvestMatch = tips.match(/harvest\s*(?:in|after)?\s*(\d+)[-\s](\d+)\s*(days?|months?|weeks?)/i);
+            // Pattern 3: "First harvest in 9-12 months"
+            if (!harvestMatch) harvestMatch = tips.match(/(?:first\s*)?harvest\s*(?:in|after)?\s*(\d+)[-\s](\d+)\s*(days?|months?|weeks?)/i);
+            // Pattern 4: "60-80 days to harvest"
+            if (!harvestMatch) harvestMatch = tips.match(/(\d+)[-\s](\d+)\s*(days?|months?|weeks?)\s*(?:to\s*)?harvest/i);
+            
+            if (harvestMatch) {
+                const unit = harvestMatch[3].toLowerCase();
+                const min = parseInt(harvestMatch[1]);
+                const max = parseInt(harvestMatch[2]);
+                if (unit.includes('month')) {
+                    stats.harvestDays = `${min * 30}-${max * 30} days`;
+                } else if (unit.includes('week')) {
+                    stats.harvestDays = `${min * 7}-${max * 7} days`;
+                } else {
+                    stats.harvestDays = `${min}-${max} days`;
+                }
+            } else {
+                // Try single number patterns
+                const singleMatch = tips.match(/(\d+)\s*(days?|months?|weeks?)\s*(?:to\s*)?harvest/i) ||
+                                  tips.match(/harvest\s*(?:in|after)?\s*(\d+)\s*(days?|months?|weeks?)/i);
+                if (singleMatch) {
+                    const num = parseInt(singleMatch[1]);
+                    const unit = singleMatch[2].toLowerCase();
+                    if (unit.includes('month')) {
+                        stats.harvestDays = `~${num * 30} days`;
+                    } else if (unit.includes('week')) {
+                        stats.harvestDays = `~${num * 7} days`;
+                    } else {
+                        stats.harvestDays = `~${num} days`;
+                    }
+                }
+            }
+            
+            // Extract spacing (e.g., "Space 30cm apart", "50-60cm apart", "3-4 meters apart")
+            const spacingMatch = tips.match(/space\s*(?:plants?\s*)?(\d+)[-\s]?(\d+)?\s*(cm|m|meters?|centimeters?)/i) ||
+                               tips.match(/(\d+)[-\s]?(\d+)?\s*(cm|m|meters?|centimeters?)\s*apart/i);
+            if (spacingMatch) {
+                const unit = spacingMatch[3].toLowerCase();
+                if (spacingMatch[2]) {
+                    stats.spacing = `${spacingMatch[1]}-${spacingMatch[2]}${unit}`;
+                } else {
+                    stats.spacing = `${spacingMatch[1]}${unit}`;
+                }
+            }
+            
+            // Extract planting time (e.g., "Plant October-February", "Plant at start of wet season")
+            const plantTimeMatch = tips.match(/plant\s*(?:at\s*)?(?:start\s*of\s*)?(wet|dry)\s*season/i) ||
+                                 tips.match(/plant\s*([A-Z][a-z]+[-–]\s*[A-Z][a-z]+)/i) ||
+                                 tips.match(/plant\s*([A-Z][a-z]+)\s*(?:[-–]\s*[A-Z][a-z]+)?/i);
+            if (plantTimeMatch) {
+                if (plantTimeMatch[1] === 'wet' || plantTimeMatch[1] === 'dry') {
+                    stats.plantingTime = plantTimeMatch[1] === 'wet' ? 'Wet Season' : 'Dry Season';
+                } else {
+                    stats.plantingTime = plantTimeMatch[1] || plantTimeMatch[0].substring(0, 20);
+                }
+            }
+            
+            // Extract water frequency
+            const waterMatch = tips.match(/(\d+)[-\s](\d+)\s*times?\s*(?:per|a)\s*(week|day)/i) ||
+                             tips.match(/water\s*(daily|weekly|regularly|deeply)/i) ||
+                             tips.match(/water\s*(\d+)[-\s](\d+)\s*times/i);
+            if (waterMatch) {
+                if (waterMatch[1] && waterMatch[2]) {
+                    stats.waterFreq = `${waterMatch[1]}-${waterMatch[2]}x/${waterMatch[3] || 'week'}`;
+                } else {
+                    stats.waterFreq = waterMatch[0].substring(0, 15);
+                }
+            }
+            
+            return stats;
+        }
+        
+        function formatDetailedTips(crop) {
+            const stats = parseTips(crop.tips);
+            const quickStats = [];
+            
+            if (stats.harvestDays) {
+                quickStats.push({label: '⏱️ Harvest', value: stats.harvestDays});
+            }
+            if (stats.spacing) {
+                quickStats.push({label: '📏 Spacing', value: stats.spacing});
+            }
+            if (stats.plantingTime) {
+                quickStats.push({label: '📅 Best Time', value: stats.plantingTime});
+            }
+            if (stats.waterFreq) {
+                quickStats.push({label: '💧 Water', value: stats.waterFreq});
+            }
+            
+            let quickStatsHTML = '';
+            if (quickStats.length > 0) {
+                quickStatsHTML = `
+                    <div class="quick-stats">
+                        ${quickStats.map(s => `
+                            <div class="quick-stat">
+                                <div class="stat-label">${s.label}</div>
+                                <div class="stat-value">${s.value}</div>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            }
+            
+            // Clean up tips text - make it more compact
+            let cleanTips = crop.tips
+                .replace(/\s+/g, ' ') // Remove extra spaces
+                .replace(/\.\s+/g, '. ') // Normalize periods
+                .trim();
+            
+            return `
+                <div class="crop-tips">
+                    <div class="tip-label">💡 Growing Guide</div>
+                    ${quickStatsHTML}
+                    <div class="tip-text">${cleanTips}</div>
+                </div>
+            `;
+        }
+        
         function renderCropCard(crop) {
             const scoreClass = crop.score >= 70 ? 'high' : crop.score >= 50 ? 'medium' : 'low';
             const seasonLabel = {
@@ -683,10 +838,7 @@
                     </div>
                     <span class="crop-season-tag ${crop.season_type}">${seasonLabel}</span>
                     <p class="crop-description">${crop.description}</p>
-                    <div class="crop-tips">
-                        <div class="tip-label">💡 TIPS</div>
-                        <div class="tip-text">${crop.tips}</div>
-                    </div>
+                    ${formatDetailedTips(crop)}
                     <div class="crop-soil">
                         <div class="label">💧 Ideal Soil Moisture</div>
                         <div class="value">${crop.ideal_soil}</div>
