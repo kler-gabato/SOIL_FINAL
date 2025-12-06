@@ -179,6 +179,35 @@ def hash_password(password):
     """Hash password using SHA256. Note: For production, consider using bcrypt."""
     return hashlib.sha256(password.encode()).hexdigest()
 
+def format_user_for_template(user_row):
+    """Convert SQLite Row to dict and format dates for template display."""
+    if not user_row:
+        return {}
+    
+    user = dict(user_row)
+    
+    # Format created_at date nicely
+    if user.get('created_at'):
+        try:
+            if isinstance(user['created_at'], str):
+                # Try different date formats
+                try:
+                    dt = datetime.fromisoformat(user['created_at'].replace('Z', '+00:00'))
+                except:
+                    try:
+                        dt = datetime.strptime(user['created_at'], '%Y-%m-%d %H:%M:%S')
+                    except:
+                        dt = datetime.strptime(user['created_at'], '%Y-%m-%d')
+            else:
+                dt = datetime.fromisoformat(str(user['created_at']))
+            user['created_at'] = dt.strftime('%B %d, %Y')
+        except Exception as e:
+            # If parsing fails, keep original value
+            print(f"⚠️  Could not format date: {e}")
+            pass
+    
+    return user
+
 def get_soil_avg_from_db(conn=None):
     """Helper function to get average soil moisture from database or Firebase."""
     if FIREBASE_ENABLED and sensor_ref:
@@ -839,8 +868,10 @@ def logout():
 @login_required
 def account():
     conn = get_db()
-    user = conn.execute('SELECT * FROM users WHERE id = ?', (session['user_id'],)).fetchone()
+    user_row = conn.execute('SELECT * FROM users WHERE id = ?', (session['user_id'],)).fetchone()
     conn.close()
+    
+    user = format_user_for_template(user_row)
     return render_template('account.html', user=user)
 
 @app.route('/account/update', methods=['POST'])
@@ -857,15 +888,18 @@ def update_account():
     
     if not current_password or user['password'] != hash_password(current_password):
         conn.close()
-        return render_template('account.html', user=user, error='Current password is incorrect')
+        user_dict = format_user_for_template(user)
+        return render_template('account.html', user=user_dict, error='Current password is incorrect')
     
     if new_password:
         if len(new_password) < 6:
             conn.close()
-            return render_template('account.html', user=user, error='New password must be at least 6 characters')
+            user_dict = format_user_for_template(user)
+            return render_template('account.html', user=user_dict, error='New password must be at least 6 characters')
         if new_password != confirm_password:
             conn.close()
-            return render_template('account.html', user=user, error='New passwords do not match')
+            user_dict = format_user_for_template(user)
+            return render_template('account.html', user=user_dict, error='New passwords do not match')
         conn.execute('UPDATE users SET username = ?, email = ?, password = ? WHERE id = ?',
                     (username, email, hash_password(new_password), session['user_id']))
     else:
@@ -874,10 +908,12 @@ def update_account():
     
     conn.commit()
     # Refresh user data from database
-    user = conn.execute('SELECT * FROM users WHERE id = ?', (session['user_id'],)).fetchone()
+    user_row = conn.execute('SELECT * FROM users WHERE id = ?', (session['user_id'],)).fetchone()
     conn.close()
     session['username'] = username
-    return render_template('account.html', user=user, success='Account updated successfully')
+    
+    user_dict = format_user_for_template(user_row)
+    return render_template('account.html', user=user_dict, success='Account updated successfully')
 
 # ========== Dashboard Routes ==========
 @app.route('/')
