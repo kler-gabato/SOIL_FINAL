@@ -3,7 +3,7 @@ from flask_cors import CORS
 import sqlite3
 import hashlib
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import json
 import firebase_admin
 from firebase_admin import credentials, db
@@ -1140,7 +1140,8 @@ def esp32_push_data():
     conn = None
     try:
         data = request.get_json()
-        timestamp = datetime.now().isoformat()
+        # Store timestamps in UTC with timezone info to avoid display offsets
+        timestamp = datetime.now(timezone.utc).isoformat()
         
         print(f"📥 Received data from ESP32: {data}")
         print(f"🔥 Firebase enabled: {FIREBASE_ENABLED}")
@@ -1374,7 +1375,7 @@ def set_mode(mode):
                 'type': 'mode',
                 'value': mode.upper(),
                 'executed': False,
-                'timestamp': datetime.now().isoformat()
+                'timestamp': datetime.now(timezone.utc).isoformat()
             })
         else:
             conn = get_db()
@@ -1400,7 +1401,7 @@ def set_pump(state):
                 'type': 'pump',
                 'value': state.upper(),
                 'executed': False,
-                'timestamp': datetime.now().isoformat()
+                'timestamp': datetime.now(timezone.utc).isoformat()
             })
         else:
             conn = get_db()
