@@ -12,6 +12,10 @@ app = Flask(__name__)
 CORS(app)
 app.secret_key = os.environ.get('SECRET_KEY', 'your-secret-key-change-this-in-production')
 
+# Keep auth cookies alive beyond default browser session to avoid sudden logouts
+app.config['SESSION_PERMANENT'] = True
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=7)
+
 # Constants
 ESP32_TIMEOUT_SECONDS = 30  # ESP32 considered offline if no data for 30 seconds
 DEFAULT_SOIL_MOISTURE = 50  # Default soil moisture percentage
@@ -794,6 +798,8 @@ def login():
         conn.close()
         
         if user and user['password'] == hash_password(password):
+            # Make session cookie persistent so it doesn't expire unexpectedly
+            session.permanent = True
             session['user_id'] = user['id']
             session['username'] = user['username']
             return redirect(url_for('dashboard'))
