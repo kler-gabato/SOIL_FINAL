@@ -735,6 +735,17 @@
         // History Data Management
         let allPumpEvents = [];
         let currentFilter = 'all';
+        let latestDataTimestamp = null;
+
+        function updateLastUpdateDisplay(ts) {
+            const el = document.getElementById('lastUpdate');
+            if (!el) return;
+            if (!ts) {
+                el.textContent = 'Last updated: No data yet';
+                return;
+            }
+            el.textContent = `Last updated: ${formatDateTime(ts)}`;
+        }
         
         // Load statistics
         async function loadStats() {
@@ -897,6 +908,10 @@
                 
                 const response = await fetch(`/api/soil_history?limit=${limit}`);
                 const history = await response.json();
+                
+                // Track latest timestamp from newest record (API returns DESC)
+                latestDataTimestamp = history?.[0]?.recorded_at || latestDataTimestamp;
+                updateLastUpdateDisplay(latestDataTimestamp);
                 
                 if (!history || history.length === 0) {
                     document.getElementById('soilHistoryTable').innerHTML = `
@@ -1125,10 +1140,8 @@
         
         async function refreshAllData() {
             try {
-                // Update last refresh time
-                const now = new Date();
-                const timeString = now.toLocaleString();
-                document.getElementById('lastUpdate').textContent = `Last updated: ${timeString}`;
+                // Keep last update tied to actual data timestamp
+                updateLastUpdateDisplay(latestDataTimestamp);
                 
                 // Refresh statistics
                 await loadStats();
@@ -1163,6 +1176,8 @@
                 const history = await soilResponse.json();
                 
                 if (history && history.length > 0) {
+                    latestDataTimestamp = history[0].recorded_at || latestDataTimestamp;
+                    updateLastUpdateDisplay(latestDataTimestamp);
                     const tableHTML = `
                         <div class="table-wrapper">
                             <table>
