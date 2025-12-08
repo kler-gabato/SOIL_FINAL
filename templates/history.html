@@ -826,6 +826,18 @@
             try {
                 const response = await fetch('/api/pump_events?limit=100');
                 allPumpEvents = await response.json();
+                
+                // Track freshest pump timestamp
+                const newestPumpTs = allPumpEvents?.[0]?.recorded_at;
+                if (newestPumpTs) {
+                    const current = new Date(latestDataTimestamp || 0);
+                    const incoming = new Date(newestPumpTs);
+                    if (!isNaN(incoming.getTime()) && (isNaN(current.getTime()) || incoming > current)) {
+                        latestDataTimestamp = newestPumpTs;
+                        updateLastUpdateDisplay(latestDataTimestamp);
+                    }
+                }
+
                 displayPumpEvents(allPumpEvents);
             } catch (error) {
                 console.error('Error loading pump events:', error);
@@ -1170,6 +1182,15 @@
                 // Refresh pump events (maintain current filter)
                 const response = await fetch('/api/pump_events?limit=100');
                 allPumpEvents = await response.json();
+                const newestPumpTs = allPumpEvents?.[0]?.recorded_at;
+                if (newestPumpTs) {
+                    const current = new Date(latestDataTimestamp || 0);
+                    const incoming = new Date(newestPumpTs);
+                    if (!isNaN(incoming.getTime()) && (isNaN(current.getTime()) || incoming > current)) {
+                        latestDataTimestamp = newestPumpTs;
+                        updateLastUpdateDisplay(latestDataTimestamp);
+                    }
+                }
                 
                 // Re-apply current filter
                 let filtered = allPumpEvents;
