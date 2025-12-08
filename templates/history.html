@@ -746,6 +746,24 @@
             }
             el.textContent = `Last updated: ${formatDateTime(ts)}`;
         }
+
+        async function refreshLatestFromCurrent() {
+            try {
+                const resp = await fetch('/api/data');
+                if (!resp.ok) return;
+                const data = await resp.json();
+                if (data && data.last_update) {
+                    const current = new Date(latestDataTimestamp || 0);
+                    const incoming = new Date(data.last_update);
+                    if (!isNaN(incoming.getTime()) && (isNaN(current.getTime()) || incoming > current)) {
+                        latestDataTimestamp = data.last_update;
+                        updateLastUpdateDisplay(latestDataTimestamp);
+                    }
+                }
+            } catch (err) {
+                console.error('Error refreshing latest timestamp from current data', err);
+            }
+        }
         
         // Load statistics
         async function loadStats() {
@@ -1037,6 +1055,7 @@
             loadStats();
             loadPumpEvents();
             loadSoilHistory(50);
+            refreshLatestFromCurrent();
             
             // Restore saved interval and update button state
             const savedInterval = parseInt(localStorage.getItem('historyUpdateInterval')) || 5;
@@ -1145,6 +1164,8 @@
                 
                 // Refresh statistics
                 await loadStats();
+                // Also check current data endpoint for freshest timestamp
+                await refreshLatestFromCurrent();
                 
                 // Refresh pump events (maintain current filter)
                 const response = await fetch('/api/pump_events?limit=100');
