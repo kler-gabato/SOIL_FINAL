@@ -1529,11 +1529,19 @@ def get_history_stats():
 @app.route('/api/pump_events')
 @login_required
 def get_pump_events():
-    """Get pump events from history"""
+    """Get pump events from history, always including latest reading"""
     conn = None
     try:
         limit = request.args.get('limit', 100, type=int)
         conn = get_db()
+        
+        # Get latest reading from sensor_history for current status
+        latest_reading = conn.execute('''SELECT 
+            recorded_at, pump_status, mode, soil_avg, temperature, humidity
+            FROM sensor_history 
+            WHERE pump_status IS NOT NULL
+            ORDER BY recorded_at DESC 
+            LIMIT 1''').fetchone()
         
         # Get history records where pump status changed
         history = conn.execute('''SELECT 
@@ -1543,7 +1551,7 @@ def get_pump_events():
             ORDER BY recorded_at DESC 
             LIMIT ?''', (limit,)).fetchall()
         
-        # Convert to pump events format
+        # Convert to pump events format (only state changes)
         events = []
         prev_status = None
         for record in history:
@@ -1557,6 +1565,21 @@ def get_pump_events():
                     "soil_moisture": record['soil_avg']
                 })
             prev_status = current_status
+        
+        # Always prepend latest reading as current status if it exists and is newer than last event
+        if latest_reading:
+            latest_timestamp = latest_reading['recorded_at']
+            # Check if latest reading is newer than the most recent event (or if no events exist)
+            if not events or (latest_timestamp > events[0]['recorded_at']):
+                # Insert at beginning as current status (not a state change event)
+                events.insert(0, {
+                    "recorded_at": latest_reading['recorded_at'],
+                    "event_type": "PUMP_ON" if latest_reading['pump_status'] == "ON" else "PUMP_OFF",
+                    "mode": latest_reading['mode'] or "AUTO",
+                    "triggered_by": "manual" if latest_reading['mode'] == "MANUAL" else "auto",
+                    "soil_moisture": latest_reading['soil_avg'],
+                    "is_current": True  # Flag to indicate this is current status, not a state change
+                })
         
         return jsonify(events)
     except Exception as e:
