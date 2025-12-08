@@ -17,7 +17,8 @@ app.config['SESSION_PERMANENT'] = True
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=7)
 
 # Constants
-ESP32_TIMEOUT_SECONDS = 30  # ESP32 considered offline if no data for 30 seconds
+# Consider ESP32 offline if no data for 5 minutes (was 30s, too aggressive)
+ESP32_TIMEOUT_SECONDS = 300
 DEFAULT_SOIL_MOISTURE = 50  # Default soil moisture percentage
 REGISTRATION_TOKEN = "soilsense-secret-token@2025"  # Required token for registration
 
@@ -1296,7 +1297,8 @@ def get_data():
                     if data.get('timestamp'):
                         try:
                             last_update = datetime.fromisoformat(data['timestamp'])
-                            time_diff = (datetime.now() - last_update).total_seconds()
+                            now_dt = datetime.now(timezone.utc) if last_update.tzinfo else datetime.now()
+                            time_diff = (now_dt - last_update).total_seconds()
                             esp32_online = time_diff < ESP32_TIMEOUT_SECONDS
                         except (ValueError, TypeError, AttributeError) as e:
                             print(f"⚠️  Error parsing timestamp: {e}")
@@ -1329,7 +1331,8 @@ def get_data():
         if data and data['last_update']:
             try:
                 last_update = datetime.fromisoformat(data['last_update'])
-                time_diff = (datetime.now() - last_update).total_seconds()
+                now_dt = datetime.now(timezone.utc) if last_update.tzinfo else datetime.now()
+                time_diff = (now_dt - last_update).total_seconds()
                 esp32_online = bool(data['esp32_online']) and time_diff < ESP32_TIMEOUT_SECONDS
                 
                 # Update online status if timeout
