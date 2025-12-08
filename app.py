@@ -15,6 +15,12 @@ app.secret_key = os.environ.get('SECRET_KEY', 'your-secret-key-change-this-in-pr
 # Keep auth cookies alive beyond default browser session to avoid sudden logouts
 app.config['SESSION_PERMANENT'] = True
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=7)
+# Configure session cookie to persist properly
+app.config['SESSION_COOKIE_NAME'] = 'soilsense_session'
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+# Don't require HTTPS for local development (set to True in production)
+app.config['SESSION_COOKIE_SECURE'] = os.environ.get('FLASK_ENV') == 'production'
 
 # Constants
 ESP32_TIMEOUT_SECONDS = 30  # ESP32 considered offline if no data for 30 seconds
@@ -250,8 +256,16 @@ def login_required(f):
     def decorated_function(*args, **kwargs):
         if 'user_id' not in session:
             return redirect(url_for('login'))
+        # Refresh session expiration for authenticated users
+        session.permanent = True
         return f(*args, **kwargs)
     return decorated_function
+
+# Refresh session on each request for authenticated users
+@app.before_request
+def refresh_session():
+    if 'user_id' in session:
+        session.permanent = True
 
 # ========== Philippine Crops Database (Expanded) ==========
 def get_current_season(month):
