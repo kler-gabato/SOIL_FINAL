@@ -1597,10 +1597,7 @@ def get_soil_history():
         limit = request.args.get('limit', 50, type=int)
         conn = get_db()
         
-        # Get latest reading from sensor_current
-        current_data = conn.execute('SELECT * FROM sensor_current WHERE id = 1').fetchone()
-        
-        # Get history from sensor_history
+        # Get history from sensor_history first (this should always work)
         history = conn.execute('''SELECT 
             recorded_at, soil_avg, soil1, soil2, soil3, soil4, 
             temperature, humidity, pump_status
@@ -1610,45 +1607,73 @@ def get_soil_history():
         
         history_list = [dict(row) for row in history]
         
-        # If we have current data and it's newer than the latest history entry, prepend it
-        if current_data and current_data.get('last_update'):
-            try:
-                current_timestamp = current_data['last_update']
-                current_soil_percent = json.loads(current_data['soil_percent']) if current_data.get('soil_percent') else [0, 0, 0, 0]
-                current_soil_avg = sum(current_soil_percent) / len(current_soil_percent) if current_soil_percent else 0
+        # Try to get latest reading from sensor_current (optional enhancement)
+        try:
+            current_data = conn.execute('SELECT * FROM sensor_current WHERE id = 1').fetchone()
+            
+            if current_data:
+                # Convert Row to dict (SQLite Row objects support dict() conversion)
+                current_dict = dict(current_data)
+                current_timestamp = current_dict.get('last_update')
                 
-                # Check if current data is newer than latest history entry
-                should_prepend = True
-                if history_list and history_list[0].get('recorded_at'):
-                    latest_history_ts = history_list[0]['recorded_at']
+                if current_timestamp:
+                    # Parse soil_percent safely
+                    soil_percent_str = current_dict.get('soil_percent')
                     try:
-                        current_dt = datetime.fromisoformat(current_timestamp.replace('Z', '+00:00')) if isinstance(current_timestamp, str) else current_timestamp
-                        latest_dt = datetime.fromisoformat(latest_history_ts.replace('Z', '+00:00')) if isinstance(latest_history_ts, str) else latest_history_ts
-                        should_prepend = current_dt > latest_dt
-                    except (ValueError, AttributeError):
-                        # If parsing fails, still prepend to be safe
-                        should_prepend = True
-                
-                if should_prepend:
-                    # Create history entry from current data
-                    current_entry = {
-                        "recorded_at": current_timestamp,
-                        "soil_avg": current_soil_avg,
-                        "soil1": current_soil_percent[0] if len(current_soil_percent) > 0 else 0,
-                        "soil2": current_soil_percent[1] if len(current_soil_percent) > 1 else 0,
-                        "soil3": current_soil_percent[2] if len(current_soil_percent) > 2 else 0,
-                        "soil4": current_soil_percent[3] if len(current_soil_percent) > 3 else 0,
-                        "temperature": current_data.get('temperature'),
-                        "humidity": current_data.get('humidity'),
-                        "pump_status": current_data.get('pump_status', 'OFF')
-                    }
-                    # Prepend to beginning of list
-                    history_list.insert(0, current_entry)
-            except Exception as e:
-                print(f"⚠️  Error processing current data for soil history: {e}")
+                        current_soil_percent = json.loads(soil_percent_str) if soil_percent_str else [0, 0, 0, 0]
+                    except (json.JSONDecodeError, TypeError):
+                        current_soil_percent = [0, 0, 0, 0]
+                    
+                    current_soil_avg = sum(current_soil_percent) / len(current_soil_percent) if current_soil_percent else 0
+                    
+                    # Check if current data is newer than latest history entry
+                    should_prepend = True
+                    if history_list and len(history_list) > 0 and history_list[0].get('recorded_at'):
+                        latest_history_ts = history_list[0]['recorded_at']
+                        try:
+                            # Handle both string and datetime objects
+                            if isinstance(current_timestamp, str):
+                                current_dt = datetime.fromisoformat(current_timestamp.replace('Z', '+00:00'))
+                            else:
+                                current_dt = current_timestamp
+                            
+                            if isinstance(latest_history_ts, str):
+                                latest_dt = datetime.fromisoformat(latest_history_ts.replace('Z', '+00:00'))
+                            else:
+                                latest_dt = latest_history_ts
+                            
+                            should_prepend = current_dt > latest_dt
+                        except (ValueError, AttributeError, TypeError) as e:
+                            # If parsing fails, don't prepend to avoid duplicates
+                            print(f"⚠️  Error comparing timestamps: {e}")
+                            should_prepend = False
+                    
+                    if should_prepend:
+                        # Create history entry from current data
+                        current_entry = {
+                            "recorded_at": current_timestamp,
+                            "soil_avg": current_soil_avg,
+                            "soil1": current_soil_percent[0] if len(current_soil_percent) > 0 else 0,
+                            "soil2": current_soil_percent[1] if len(current_soil_percent) > 1 else 0,
+                            "soil3": current_soil_percent[2] if len(current_soil_percent) > 2 else 0,
+                            "soil4": current_soil_percent[3] if len(current_soil_percent) > 3 else 0,
+                            "temperature": current_dict.get('temperature'),
+                            "humidity": current_dict.get('humidity'),
+                            "pump_status": current_dict.get('pump_status', 'OFF')
+                        }
+                        # Prepend to beginning of list
+                        history_list.insert(0, current_entry)
+        except Exception as e:
+            # If current data processing fails, just return history (don't fail the whole request)
+            print(f"⚠️  Error processing current data for soil history: {e}")
+            import traceback
+            traceback.print_exc()
         
         return jsonify(history_list)
     except Exception as e:
+        print(f"❌ Error in get_soil_history: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
     finally:
         if conn:
