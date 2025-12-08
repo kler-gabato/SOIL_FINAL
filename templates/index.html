@@ -724,17 +724,34 @@
             pumpStatus.className = 'pump-status ' + (isOn ? 'on' : 'off');
             pumpStatus.querySelector('.status').textContent = 'PUMP ' + data.pump_status;
             
-            // Last Update
-            if (data.last_update) {
-                try {
-                    const updateDate = new Date(data.last_update);
-                    document.getElementById('lastUpdate').textContent = updateDate.toLocaleString();
-                } catch (e) {
-                    document.getElementById('lastUpdate').textContent = data.last_update;
+            // Last Update with timezone-safe parsing and relative time
+            const lastUpdateEl = document.getElementById('lastUpdate');
+            const formatLastUpdate = (ts) => {
+                if (!ts) return 'No data yet';
+                
+                // Try parsing; if no timezone, force UTC to avoid offset ambiguity
+                let parsed = new Date(ts);
+                if (isNaN(parsed.getTime())) {
+                    parsed = new Date(ts + (ts.endsWith('Z') ? '' : 'Z'));
                 }
-            } else {
-                document.getElementById('lastUpdate').textContent = 'No data yet';
-            }
+                if (isNaN(parsed.getTime())) return ts;
+                
+                const now = new Date();
+                const diffMs = Math.max(0, now - parsed);
+                const diffSec = Math.floor(diffMs / 1000);
+                const diffMin = Math.floor(diffSec / 60);
+                const diffHr = Math.floor(diffMin / 60);
+                const diffDay = Math.floor(diffHr / 24);
+                
+                let relative = 'just now';
+                if (diffSec >= 50 && diffMin < 60) relative = `${diffMin}m ago`;
+                else if (diffMin >= 60 && diffHr < 24) relative = `${diffHr}h ago`;
+                else if (diffHr >= 24) relative = `${diffDay}d ago`;
+                
+                return `${parsed.toLocaleString()} (${relative})`;
+            };
+            
+            lastUpdateEl.textContent = formatLastUpdate(data.last_update);
         }
         
         let saveCounter = 0;
