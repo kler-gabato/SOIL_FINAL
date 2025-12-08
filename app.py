@@ -17,8 +17,7 @@ app.config['SESSION_PERMANENT'] = True
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=7)
 
 # Constants
-# Consider ESP32 offline if no data for 5 minutes (was 30s, too aggressive)
-ESP32_TIMEOUT_SECONDS = 300
+ESP32_TIMEOUT_SECONDS = 30  # ESP32 considered offline if no data for 30 seconds
 DEFAULT_SOIL_MOISTURE = 50  # Default soil moisture percentage
 REGISTRATION_TOKEN = "soilsense-secret-token@2025"  # Required token for registration
 
@@ -1530,11 +1529,19 @@ def get_history_stats():
 @app.route('/api/pump_events')
 @login_required
 def get_pump_events():
-    """Get pump events from history"""
+    """Get pump events from history, always including latest reading"""
     conn = None
     try:
         limit = request.args.get('limit', 100, type=int)
         conn = get_db()
+        
+        # Get latest reading from sensor_history for current status
+        latest_reading = conn.execute('''SELECT 
+            recorded_at, pump_status, mode, soil_avg, temperature, humidity
+            FROM sensor_history 
+            WHERE pump_status IS NOT NULL
+            ORDER BY recorded_at DESC 
+            LIMIT 1''').fetchone()
         
         # Get history records where pump status changed
         history = conn.execute('''SELECT 
@@ -1544,7 +1551,7 @@ def get_pump_events():
             ORDER BY recorded_at DESC 
             LIMIT ?''', (limit,)).fetchall()
         
-        # Convert to pump events format
+        # Convert to pump events format (only state changes)
         events = []
         prev_status = None
         for record in history:
@@ -1559,6 +1566,21 @@ def get_pump_events():
                 })
             prev_status = current_status
         
+        # Always prepend latest reading as current status if it exists and is newer than last event
+        if latest_reading:
+            latest_timestamp = latest_reading['recorded_at']
+            # Check if latest reading is newer than the most recent event (or if no events exist)
+            if not events or (latest_timestamp > events[0]['recorded_at']):
+                # Insert at beginning as current status (not a state change event)
+                events.insert(0, {
+                    "recorded_at": latest_reading['recorded_at'],
+                    "event_type": "PUMP_ON" if latest_reading['pump_status'] == "ON" else "PUMP_OFF",
+                    "mode": latest_reading['mode'] or "AUTO",
+                    "triggered_by": "manual" if latest_reading['mode'] == "MANUAL" else "auto",
+                    "soil_moisture": latest_reading['soil_avg'],
+                    "is_current": True  # Flag to indicate this is current status, not a state change
+                })
+        
         return jsonify(events)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -1569,18 +1591,63 @@ def get_pump_events():
 @app.route('/api/soil_history')
 @login_required
 def get_soil_history():
-    """Get soil moisture history"""
+    """Get soil moisture history, always including latest reading from sensor_current"""
     conn = None
     try:
         limit = request.args.get('limit', 50, type=int)
         conn = get_db()
+        
+        # Get latest reading from sensor_current
+        current_data = conn.execute('SELECT * FROM sensor_current WHERE id = 1').fetchone()
+        
+        # Get history from sensor_history
         history = conn.execute('''SELECT 
             recorded_at, soil_avg, soil1, soil2, soil3, soil4, 
             temperature, humidity, pump_status
             FROM sensor_history 
             ORDER BY recorded_at DESC 
             LIMIT ?''', (limit,)).fetchall()
-        return jsonify([dict(row) for row in history])
+        
+        history_list = [dict(row) for row in history]
+        
+        # If we have current data and it's newer than the latest history entry, prepend it
+        if current_data and current_data.get('last_update'):
+            try:
+                current_timestamp = current_data['last_update']
+                current_soil_percent = json.loads(current_data['soil_percent']) if current_data.get('soil_percent') else [0, 0, 0, 0]
+                current_soil_avg = sum(current_soil_percent) / len(current_soil_percent) if current_soil_percent else 0
+                
+                # Check if current data is newer than latest history entry
+                should_prepend = True
+                if history_list and history_list[0].get('recorded_at'):
+                    latest_history_ts = history_list[0]['recorded_at']
+                    try:
+                        current_dt = datetime.fromisoformat(current_timestamp.replace('Z', '+00:00')) if isinstance(current_timestamp, str) else current_timestamp
+                        latest_dt = datetime.fromisoformat(latest_history_ts.replace('Z', '+00:00')) if isinstance(latest_history_ts, str) else latest_history_ts
+                        should_prepend = current_dt > latest_dt
+                    except (ValueError, AttributeError):
+                        # If parsing fails, still prepend to be safe
+                        should_prepend = True
+                
+                if should_prepend:
+                    # Create history entry from current data
+                    current_entry = {
+                        "recorded_at": current_timestamp,
+                        "soil_avg": current_soil_avg,
+                        "soil1": current_soil_percent[0] if len(current_soil_percent) > 0 else 0,
+                        "soil2": current_soil_percent[1] if len(current_soil_percent) > 1 else 0,
+                        "soil3": current_soil_percent[2] if len(current_soil_percent) > 2 else 0,
+                        "soil4": current_soil_percent[3] if len(current_soil_percent) > 3 else 0,
+                        "temperature": current_data.get('temperature'),
+                        "humidity": current_data.get('humidity'),
+                        "pump_status": current_data.get('pump_status', 'OFF')
+                    }
+                    # Prepend to beginning of list
+                    history_list.insert(0, current_entry)
+            except Exception as e:
+                print(f"⚠️  Error processing current data for soil history: {e}")
+        
+        return jsonify(history_list)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
     finally:
