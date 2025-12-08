@@ -17,8 +17,7 @@ app.config['SESSION_PERMANENT'] = True
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=7)
 
 # Constants
-# Consider ESP32 offline if no data for 5 minutes (was 30s, too aggressive)
-ESP32_TIMEOUT_SECONDS = 300
+ESP32_TIMEOUT_SECONDS = 30  # ESP32 considered offline if no data for 30 seconds
 DEFAULT_SOIL_MOISTURE = 50  # Default soil moisture percentage
 REGISTRATION_TOKEN = "soilsense-secret-token@2025"  # Required token for registration
 
