@@ -107,8 +107,12 @@ def init_firebase():
 init_firebase()
 
 # ========== Database Setup (SQLite for backup/history) ==========
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(BASE_DIR, 'soilsense.db')
+
+# ========== Database Setup (SQLite for backup/history) ==========
 def init_db():
-    conn = sqlite3.connect('soilsense.db')
+    conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -181,7 +185,8 @@ def init_db():
 init_db()
 
 def get_db():
-    conn = sqlite3.connect('soilsense.db')
+    # Use absolute path so the DB is found regardless of current working dir
+    conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
 
