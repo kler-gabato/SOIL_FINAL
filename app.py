@@ -842,23 +842,36 @@ def register():
         # Check for duplicate username and email before attempting insert
         conn = get_db()
         try:
+            cursor = conn.cursor()
             # Check if username already exists
-            existing_username = conn.execute('SELECT id FROM users WHERE username = ?', (username,)).fetchone()
+            existing_username = cursor.execute('SELECT id FROM users WHERE username = ?', (username,)).fetchone()
             if existing_username:
+                cursor.close()
                 conn.close()
                 return render_template('register.html', error='Username already exists. Please choose a different username.')
             
             # Check if email already exists
-            existing_email = conn.execute('SELECT id FROM users WHERE email = ?', (email,)).fetchone()
+            existing_email = cursor.execute('SELECT id FROM users WHERE email = ?', (email,)).fetchone()
             if existing_email:
+                cursor.close()
                 conn.close()
                 return render_template('register.html', error='Email already exists. Please use a different email address.')
             
             # Store in SQLite
-            conn.execute('INSERT INTO users (username, email, password) VALUES (?, ?, ?)',
+            cursor.execute('INSERT INTO users (username, email, password) VALUES (?, ?, ?)',
                         (username, email, hash_password(password)))
             conn.commit()
+            
+            # Verify the insert was successful
+            verify_user = cursor.execute('SELECT id FROM users WHERE username = ?', (username,)).fetchone()
+            if not verify_user:
+                cursor.close()
+                conn.close()
+                return render_template('register.html', error='Registration failed: User was not saved to database.')
+            
+            cursor.close()
             conn.close()
+            print(f"✅ User {username} successfully registered and saved to database")
             
             # Also store in Firebase if enabled
             if FIREBASE_ENABLED and users_ref:
@@ -873,9 +886,19 @@ def register():
                     print(f"⚠️  Could not save user to Firebase: {e}")
             
             return redirect(url_for('login'))
+        except sqlite3.Error as e:
+            if conn:
+                conn.rollback()
+                conn.close()
+            print(f"❌ Database error during registration: {e}")
+            return render_template('register.html', error=f'Registration failed: Database error - {str(e)}')
         except Exception as e:
             if conn:
+                conn.rollback()
                 conn.close()
+            print(f"❌ Error during registration: {e}")
+            import traceback
+            traceback.print_exc()
             return render_template('register.html', error=f'Registration failed: {str(e)}')
     return render_template('register.html')
 
