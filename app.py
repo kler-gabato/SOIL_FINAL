@@ -845,21 +845,20 @@ def register():
             return render_template('register.html', error='Password must be at least 6 characters')
         
         # Check for duplicate username and email before attempting insert
-        conn = get_db()
+        conn = None
+        cursor = None
         try:
+            conn = get_db()
             cursor = conn.cursor()
+            
             # Check if username already exists
             existing_username = cursor.execute('SELECT id FROM users WHERE username = ?', (username,)).fetchone()
             if existing_username:
-                cursor.close()
-                conn.close()
                 return render_template('register.html', error='Username already exists. Please choose a different username.')
             
             # Check if email already exists
             existing_email = cursor.execute('SELECT id FROM users WHERE email = ?', (email,)).fetchone()
             if existing_email:
-                cursor.close()
-                conn.close()
                 return render_template('register.html', error='Email already exists. Please use a different email address.')
             
             # Store in SQLite
@@ -868,15 +867,24 @@ def register():
             conn.commit()
             
             # Verify the insert was successful
-            verify_user = cursor.execute('SELECT id FROM users WHERE username = ?', (username,)).fetchone()
+            verify_user = cursor.execute('SELECT id, username, email FROM users WHERE username = ?', (username,)).fetchone()
             if not verify_user:
-                cursor.close()
-                conn.close()
+                conn.rollback()
                 return render_template('register.html', error='Registration failed: User was not saved to database.')
             
-            cursor.close()
-            conn.close()
-            print(f"✅ User {username} successfully registered and saved to database")
+            print(f"✅ User {username} (ID: {verify_user['id']}) successfully registered and saved to database")
+            
+            # Also store in Firebase if enabled
+            if FIREBASE_ENABLED and users_ref:
+                try:
+                    users_ref.child(username).set({
+                        'username': username,
+                        'email': email,
+                        'created_at': datetime.now().isoformat()
+                    })
+                    print(f"✅ User {username} also saved to Firebase")
+                except Exception as e:
+                    print(f"⚠️  Could not save user to Firebase: {e}")
             
             # Also store in Firebase if enabled
             if FIREBASE_ENABLED and users_ref:
@@ -894,17 +902,22 @@ def register():
         except sqlite3.Error as e:
             if conn:
                 conn.rollback()
-                conn.close()
             print(f"❌ Database error during registration: {e}")
+            import traceback
+            traceback.print_exc()
             return render_template('register.html', error=f'Registration failed: Database error - {str(e)}')
         except Exception as e:
             if conn:
                 conn.rollback()
-                conn.close()
             print(f"❌ Error during registration: {e}")
             import traceback
             traceback.print_exc()
             return render_template('register.html', error=f'Registration failed: {str(e)}')
+        finally:
+            if cursor:
+                cursor.close()
+            if conn:
+                conn.close()
     return render_template('register.html')
 
 @app.route('/logout')
@@ -915,12 +928,23 @@ def logout():
 @app.route('/account')
 @login_required
 def account():
-    conn = get_db()
-    user_row = conn.execute('SELECT * FROM users WHERE id = ?', (session['user_id'],)).fetchone()
-    conn.close()
-    
-    user = format_user_for_template(user_row)
-    return render_template('account.html', user=user)
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        user_row = cursor.execute('SELECT * FROM users WHERE id = ?', (session['user_id'],)).fetchone()
+        cursor.close()
+        conn.close()
+        
+        if not user_row:
+            return render_template('account.html', error='User not found')
+        
+        user = format_user_for_template(user_row)
+        return render_template('account.html', user=user)
+    except Exception as e:
+        print(f"❌ Error fetching account: {e}")
+        import traceback
+        traceback.print_exc()
+        return render_template('account.html', error=f'Error loading account: {str(e)}')
 
 @app.route('/account/update', methods=['POST'])
 @login_required
@@ -931,37 +955,53 @@ def update_account():
     new_password = request.form.get('new_password')
     confirm_password = request.form.get('confirm_password')
     
-    conn = get_db()
-    user = conn.execute('SELECT * FROM users WHERE id = ?', (session['user_id'],)).fetchone()
-    
-    if not current_password or user['password'] != hash_password(current_password):
-        conn.close()
-        user_dict = format_user_for_template(user)
-        return render_template('account.html', user=user_dict, error='Current password is incorrect')
-    
-    if new_password:
-        if len(new_password) < 6:
-            conn.close()
+    conn = None
+    cursor = None
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        user = cursor.execute('SELECT * FROM users WHERE id = ?', (session['user_id'],)).fetchone()
+        
+        if not user:
+            return render_template('account.html', error='User not found')
+        
+        if not current_password or user['password'] != hash_password(current_password):
             user_dict = format_user_for_template(user)
-            return render_template('account.html', user=user_dict, error='New password must be at least 6 characters')
-        if new_password != confirm_password:
+            return render_template('account.html', user=user_dict, error='Current password is incorrect')
+        
+        if new_password:
+            if len(new_password) < 6:
+                user_dict = format_user_for_template(user)
+                return render_template('account.html', user=user_dict, error='New password must be at least 6 characters')
+            if new_password != confirm_password:
+                user_dict = format_user_for_template(user)
+                return render_template('account.html', user=user_dict, error='New passwords do not match')
+            cursor.execute('UPDATE users SET username = ?, email = ?, password = ? WHERE id = ?',
+                        (username, email, hash_password(new_password), session['user_id']))
+        else:
+            cursor.execute('UPDATE users SET username = ?, email = ? WHERE id = ?',
+                        (username, email, session['user_id']))
+        
+        conn.commit()
+        
+        # Refresh user data from database
+        user_row = cursor.execute('SELECT * FROM users WHERE id = ?', (session['user_id'],)).fetchone()
+        session['username'] = username
+        
+        user_dict = format_user_for_template(user_row)
+        return render_template('account.html', user=user_dict, success='Account updated successfully')
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        print(f"❌ Error updating account: {e}")
+        import traceback
+        traceback.print_exc()
+        return render_template('account.html', error=f'Error updating account: {str(e)}')
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
             conn.close()
-            user_dict = format_user_for_template(user)
-            return render_template('account.html', user=user_dict, error='New passwords do not match')
-        conn.execute('UPDATE users SET username = ?, email = ?, password = ? WHERE id = ?',
-                    (username, email, hash_password(new_password), session['user_id']))
-    else:
-        conn.execute('UPDATE users SET username = ?, email = ? WHERE id = ?',
-                    (username, email, session['user_id']))
-    
-    conn.commit()
-    # Refresh user data from database
-    user_row = conn.execute('SELECT * FROM users WHERE id = ?', (session['user_id'],)).fetchone()
-    conn.close()
-    session['username'] = username
-    
-    user_dict = format_user_for_template(user_row)
-    return render_template('account.html', user=user_dict, success='Account updated successfully')
 
 # ========== Dashboard Routes ==========
 @app.route('/')
